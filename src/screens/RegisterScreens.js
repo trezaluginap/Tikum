@@ -1,165 +1,120 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { supabase } from '../../supabase';
+import { navigate } from '../navigation/rootNavigation';
 
-const VEHICLE_TYPES = ['Motor', 'Mobil'];
+export default function RegisterScreens({ navigation }) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [nama, setNama] = useState('');
+    const [jenisKendaraan, setJenisKendaraan] = useState('');
+    const [loading, setLoading] = useState(false);
 
-export default function RegisterScreens({ onRegistered }) {
-	const [nama, setNama] = useState('');
-	const [jenisKendaraan, setJenisKendaraan] = useState('');
-	const [isSubmitting, setIsSubmitting] = useState(false);
+    const isDisabled = useMemo(() => {
+        return !email.includes('@') || password.length < 6 || !nama.trim() || !jenisKendaraan || loading;
+    }, [email, password, nama, jenisKendaraan, loading]);
 
-	const isDisabled = useMemo(() => {
-		return !nama.trim() || !jenisKendaraan || isSubmitting;
-	}, [nama, jenisKendaraan, isSubmitting]);
+    const safeNavigate = (routeName) => {
+        if (navigation?.navigate) {
+            navigation.navigate(routeName);
+            return;
+        }
 
-	const handleContinue = async () => {
-		if (isDisabled) return;
+        navigate(routeName);
+    };
 
-		const payload = {
-			display_name: nama.trim(),
-			vehicle_type: jenisKendaraan,
-		};
+    const handleSignUp = async () => {
+        if (isDisabled) return;
+        setLoading(true);
 
-		try {
-			setIsSubmitting(true);
+        try {
+            // STEP 1: Mendaftarkan User ke Auth Supabase
+            const { data: { user, session }, error: authError } = await supabase.auth.signUp({
+                email,
+                password,
+            });
 
-			await AsyncStorage.setItem('guest_registration', JSON.stringify(payload));
+            if (authError) throw authError;
 
-			Alert.alert('Sukses', 'Registrasi berhasil disimpan secara lokal.');
-			setNama('');
-			setJenisKendaraan('');
-			onRegistered?.();
-		} catch (error) {
-			Alert.alert('Error', error?.message || 'Gagal melakukan registrasi.');
-			console.error('Register error:', error);
-		} finally {
-			setIsSubmitting(false);
-		}
-	};
+            // STEP 2: Jika Auth Berhasil, Insert data ke table Profiles
+            if (user) {
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .insert([
+                        {
+                            id: user.id, // ID ini didapat dari hasil signUp tadi
+                            display_name: nama.trim(),
+                            vehicle_type: jenisKendaraan,
+                        },
+                    ]);
 
-	return (
-		<View style={styles.container}>
-			<Text style={styles.title}>Guest Registration</Text>
+                if (profileError) throw profileError;
+                
+                Alert.alert('Berhasil', 'Silakan cek email untuk verifikasi (jika diaktifkan) atau langsung login.');
+                safeNavigate('Login');
+            }
+        } catch (error) {
+            Alert.alert('Registration Error', error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-			<View style={styles.section}>
-				<Text style={styles.label}>Nama</Text>
-				<TextInput
-					value={nama}
-					onChangeText={setNama}
-					placeholder="Masukkan nama"
-					maxLength={15}
-					style={styles.input}
-					autoCapitalize="words"
-				/>
-				<Text style={styles.helper}>{nama.length}/15 karakter</Text>
-			</View>
+    return (
+        <ScrollView contentContainerStyle={styles.container}>
+            <Text style={styles.title}>Buat Akun Baru</Text>
+            
+            <View style={styles.section}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput value={email} onChangeText={setEmail} placeholder="email@contoh.com" style={styles.input} keyboardType="email-address" autoCapitalize="none" />
+            </View>
 
-			<View style={styles.section}>
-				<Text style={styles.label}>Jenis Kendaraan</Text>
-				<View style={styles.vehicleContainer}>
-					{VEHICLE_TYPES.map((item) => {
-						const selected = jenisKendaraan === item;
-						return (
-							<Pressable
-								key={item}
-								style={[styles.vehicleButton, selected && styles.vehicleButtonSelected]}
-								onPress={() => setJenisKendaraan(item)}
-							>
-								<Text
-									style={[styles.vehicleText, selected && styles.vehicleTextSelected]}
-								>
-									{item}
-								</Text>
-							</Pressable>
-						);
-					})}
-				</View>
-			</View>
+            <View style={styles.section}>
+                <Text style={styles.label}>Password (Min. 6 Karakter)</Text>
+                <TextInput value={password} onChangeText={setPassword} placeholder="******" style={styles.input} secureTextEntry />
+            </View>
 
-			<Pressable
-				onPress={handleContinue}
-				disabled={isDisabled}
-				style={[styles.continueButton, isDisabled && styles.continueButtonDisabled]}
-			>
-				<Text style={styles.continueButtonText}>
-					{isSubmitting ? 'Menyimpan...' : 'Lanjut'}
-				</Text>
-			</Pressable>
-		</View>
-	);
+            <View style={styles.section}>
+                <Text style={styles.label}>Nama Tampilan</Text>
+                <TextInput value={nama} onChangeText={setNama} placeholder="Nama di Peta" style={styles.input} maxLength={15} />
+            </View>
+
+            <View style={styles.section}>
+                <Text style={styles.label}>Jenis Kendaraan</Text>
+                <View style={styles.row}>
+                    {['Motor', 'Mobil'].map((v) => (
+                        <Pressable key={v} onPress={() => setJenisKendaraan(v)} style={[styles.chip, jenisKendaraan === v && styles.chipActive]}>
+                            <Text style={[styles.chipText, jenisKendaraan === v && styles.chipTextActive]}>{v}</Text>
+                        </Pressable>
+                    ))}
+                </View>
+            </View>
+
+            <Pressable onPress={handleSignUp} disabled={isDisabled} style={[styles.btn, isDisabled && styles.btnDisabled]}>
+                <Text style={styles.btnText}>{loading ? 'Memproses...' : 'Daftar Sekarang'}</Text>
+            </Pressable>
+
+            <Pressable onPress={() => safeNavigate('Login')} style={styles.link}>
+                <Text style={styles.linkText}>Sudah punya akun? Login</Text>
+            </Pressable>
+        </ScrollView>
+    );
 }
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		padding: 16,
-		justifyContent: 'center',
-		backgroundColor: '#fff',
-	},
-	title: {
-		fontSize: 24,
-		fontWeight: '700',
-		marginBottom: 20,
-	},
-	section: {
-		marginBottom: 16,
-	},
-	label: {
-		fontSize: 16,
-		fontWeight: '600',
-		marginBottom: 8,
-	},
-	input: {
-		borderWidth: 1,
-		borderColor: '#d9d9d9',
-		borderRadius: 10,
-		paddingHorizontal: 12,
-		paddingVertical: 10,
-		fontSize: 16,
-	},
-	helper: {
-		marginTop: 6,
-		fontSize: 12,
-		color: '#666',
-	},
-	vehicleContainer: {
-		flexDirection: 'row',
-		gap: 10,
-	},
-	vehicleButton: {
-		borderWidth: 1,
-		borderColor: '#d9d9d9',
-		borderRadius: 10,
-		paddingVertical: 10,
-		paddingHorizontal: 16,
-	},
-	vehicleButtonSelected: {
-		borderColor: '#222',
-		backgroundColor: '#f2f2f2',
-	},
-	vehicleText: {
-		fontSize: 14,
-		color: '#333',
-		fontWeight: '500',
-	},
-	vehicleTextSelected: {
-		color: '#000',
-		fontWeight: '700',
-	},
-	continueButton: {
-		marginTop: 10,
-		backgroundColor: '#111',
-		borderRadius: 10,
-		paddingVertical: 13,
-		alignItems: 'center',
-	},
-	continueButtonDisabled: {
-		backgroundColor: '#a0a0a0',
-	},
-	continueButtonText: {
-		color: '#fff',
-		fontSize: 16,
-		fontWeight: '700',
-	},
+    container: { padding: 24, flexGrow: 1, justifyContent: 'center', backgroundColor: '#fff' },
+    title: { fontSize: 28, fontWeight: 'bold', marginBottom: 30, color: '#111' },
+    section: { marginBottom: 20 },
+    label: { fontSize: 14, fontWeight: '600', marginBottom: 8, color: '#444' },
+    input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, fontSize: 16 },
+    row: { flexDirection: 'row', gap: 10 },
+    chip: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, borderColor: '#ddd' },
+    chipActive: { backgroundColor: '#111', borderColor: '#111' },
+    chipText: { color: '#444', fontWeight: '500' },
+    chipTextActive: { color: '#fff' },
+    btn: { backgroundColor: '#111', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+    btnDisabled: { backgroundColor: '#ccc' },
+    btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+    link: { marginTop: 20, alignItems: 'center' },
+    linkText: { color: '#666', fontSize: 14 }
 });
