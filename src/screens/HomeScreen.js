@@ -181,7 +181,10 @@ export default function HomeScreen() {
           <Text style={styles.subText}>Halo 👋</Text>
           <Text style={styles.welcomeText}>{displayName}</Text>
         </View>
-        <TouchableOpacity style={styles.profileCircle}>
+        <TouchableOpacity 
+          style={styles.profileCircle}
+          onPress={() => navigation.navigate('Profile')}
+        >
            <Text style={styles.profileInitial}>{profileInitial}</Text>
         </TouchableOpacity>
       </View>

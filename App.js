@@ -8,6 +8,7 @@ import { navigationRef } from './src/navigation/rootNavigation';
 import HomeScreen from './src/screens/HomeScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import MapScreen from './src/screens/MapScreen'; // Cek apakah filenya memang MapScreen.js
+import ProfileScreen from './src/screens/ProfileScreen';
 import RegisterScreens from './src/screens/RegisterScreens';
 
 const Stack = createNativeStackNavigator();
@@ -30,6 +31,7 @@ const RootNavigator = () => {
                     <Stack.Group>
                         <Stack.Screen name="Home" component={HomeScreen} />
                         <Stack.Screen name="Map" component={MapScreen} />
+                        <Stack.Screen name="Profile" component={ProfileScreen} />
                     </Stack.Group>
                 ) : (
                     <Stack.Group>
