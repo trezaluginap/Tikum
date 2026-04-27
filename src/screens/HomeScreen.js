@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native'; // Untuk navigasi
+import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import {
@@ -14,27 +14,37 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { supabase } from '../lib/supabase'; // Pastikan path ini benar
+
+// Pastikan struktur path folder ini sama persis dengan yang ada di laptop teman lu
+import { supabase } from '../../supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const { user } = useAuth(); // Menarik "identitas" dari satpam Gatekeeper
   const [modalVisible, setModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- FUNGSI ASLI BUAT ROOM (CAPTAIN) ---
+  // Mengambil nama dari metadata user (diisi saat register)
+  const displayName = user?.user_metadata?.display_name || 'Pengguna';
+  const profileInitial = displayName.substring(0, 2).toUpperCase();
+
+  // --- FUNGSI BUAT ROOM (CAPTAIN) ---
   const handleCreateRoom = async () => {
     setLoading(true);
     try {
-      // 1. Generate PIN 6 digit acak
+      // 1. Safety check
+      if (!user || !user.id) {
+        throw new Error("Sesi tidak valid, silakan login ulang.");
+      }
+
+      // 2. Generate PIN 6 digit acak
       const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // 2. Ambil ID user yang sedang login
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) throw new Error("Sesi berakhir, silakan login ulang.");
+      console.log('📍 Membuat room dengan PIN:', generatedPin);
 
       // 3. Simpan ke database Supabase
       const { data, error } = await supabase
@@ -42,35 +52,48 @@ export default function HomeScreen() {
         .insert([
           { 
             room_pin: generatedPin, 
-            host_id: user.id, 
+            host_id: user.id, // Pakai ID dari AuthContext
             is_active: true 
           }
         ])
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase Error:', error);
+        throw new Error(error.message || 'Gagal menyimpan room ke database');
+      }
 
-      Alert.alert("Sukses!", `Room dibuat dengan PIN: ${generatedPin}`);
+      if (!data || data.length === 0) {
+        throw new Error('Room berhasil dibuat tapi data tidak terambil');
+      }
+
+      Alert.alert("✅ Sukses!", `Room dibuat dengan PIN: ${generatedPin}`);
       
-      // 4. Navigasi ke MapScreen sambil membawa ID Room
+      // 4. Navigasi ke MapScreen sambil membawa parameter
       navigation.navigate('Map', { roomId: data[0].id, pin: generatedPin });
 
     } catch (error) {
-      Alert.alert("Gagal Membuat Room", error.message);
+      console.error("❌ Create Room Error:", error);
+      Alert.alert(
+        "Gagal Membuat Room", 
+        error.message || "Terjadi kesalahan yang tidak diketahui"
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // --- FUNGSI ASLI GABUNG ROOM (GUEST) ---
+  // --- FUNGSI GABUNG ROOM (GUEST) ---
   const handleJoinRoom = async () => {
     if (pinInput.length !== 6) {
-      Alert.alert("Error", "PIN harus 6 digit.");
+      Alert.alert("Validasi", "PIN harus terdiri dari 6 digit angka.");
       return;
     }
 
     setLoading(true);
     try {
+      console.log('🔍 Mencari room dengan PIN:', pinInput);
+
       // 1. Cek apakah PIN ada di database dan aktif
       const { data, error } = await supabase
         .from('rooms')
@@ -79,17 +102,27 @@ export default function HomeScreen() {
         .eq('is_active', true)
         .single();
 
-      if (error || !data) {
-        throw new Error("PIN tidak ditemukan atau sudah tidak aktif.");
+      if (error) {
+        console.error('❌ Supabase Error:', error);
+        throw new Error(error.message || "PIN tidak ditemukan atau room sudah ditutup.");
       }
 
-      // 2. Jika ketemu, tutup modal dan pindah ke Map
+      if (!data) {
+        throw new Error("PIN tidak ditemukan atau room sudah ditutup.");
+      }
+
+      // 2. Jika ketemu, tutup modal dan lempar ke Map
       setModalVisible(false);
       setPinInput('');
+      Alert.alert("✅ Sukses!", "Berhasil bergabung dengan room");
       navigation.navigate('Map', { roomId: data.id });
 
     } catch (error) {
-      Alert.alert("Gagal Gabung", error.message);
+      console.error("❌ Join Room Error:", error);
+      Alert.alert(
+        "Gagal Gabung", 
+        error.message || "Terjadi kesalahan yang tidak diketahui"
+      );
     } finally {
       setLoading(false);
     }
@@ -109,7 +142,7 @@ export default function HomeScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Gabung Titik Kumpul</Text>
-            <Text style={styles.modalSubTitle}>Masukkan 6 digit PIN dari Captain</Text>
+            <Text style={styles.modalSubTitle}>Masukkan 6 digit PIN dari Leader</Text>
             
             <TextInput
               style={styles.pinInput}
@@ -135,7 +168,7 @@ export default function HomeScreen() {
                 onPress={handleJoinRoom}
                 disabled={loading}
               >
-                <Text style={styles.textJoin}>{loading ? 'Checking...' : 'Gabung'}</Text>
+                <Text style={styles.textJoin}>{loading ? 'Cek...' : 'Gabung'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -146,10 +179,10 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.subText}>Halo 👋</Text>
-          <Text style={styles.welcomeText}>Faisal Abdul Aziz</Text>
+          <Text style={styles.welcomeText}>{displayName}</Text>
         </View>
         <TouchableOpacity style={styles.profileCircle}>
-           <Text style={styles.profileInitial}>FA</Text>
+           <Text style={styles.profileInitial}>{profileInitial}</Text>
         </TouchableOpacity>
       </View>
 
@@ -173,7 +206,7 @@ export default function HomeScreen() {
               <MaterialCommunityIcons name="plus" size={28} color="white" />
             </View>
             <Text style={styles.actionText}>Buat Room</Text>
-            <Text style={styles.actionSubText}>Jadi Captain</Text>
+            <Text style={styles.actionSubText}>Jadi Leader</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -210,7 +243,7 @@ const styles = StyleSheet.create({
   welcomeText: { fontSize: 20, fontWeight: '800', color: '#333' },
   subText: { color: '#888', fontSize: 14 },
   profileCircle: { width: 45, height: 45, backgroundColor: '#2196F3', borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
-  profileInitial: { color: 'white', fontWeight: 'bold' },
+  profileInitial: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   content: { padding: 20 },
   statusCard: { backgroundColor: '#2196F3', padding: 25, borderRadius: 20, marginBottom: 25, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statusLabel: { color: '#E3F2FD', fontSize: 14 },
