@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { supabase } from '../../supabase';
+// Perhatikan: Jika folder 'lib' ada di root (luar src), gunakan ../../
+// Jika folder 'lib' ada di dalam 'src', gunakan ../lib/supabase
+import { supabase } from '../lib/supabase';
 import { navigate } from '../navigation/rootNavigation';
 
 export default function RegisterScreens({ navigation }) {
@@ -19,7 +21,6 @@ export default function RegisterScreens({ navigation }) {
             navigation.navigate(routeName);
             return;
         }
-
         navigate(routeName);
     };
 
@@ -28,21 +29,21 @@ export default function RegisterScreens({ navigation }) {
         setLoading(true);
 
         try {
-            // STEP 1: Mendaftarkan User ke Auth Supabase
-            const { data: { user, session }, error: authError } = await supabase.auth.signUp({
+            const { data, error: authError } = await supabase.auth.signUp({
                 email,
                 password,
             });
 
             if (authError) throw authError;
 
-            // STEP 2: Jika Auth Berhasil, Insert data ke table Profiles
+            const user = data?.user;
+
             if (user) {
                 const { error: profileError } = await supabase
                     .from('profiles')
                     .insert([
                         {
-                            id: user.id, // ID ini didapat dari hasil signUp tadi
+                            id: user.id, 
                             display_name: nama.trim(),
                             vehicle_type: jenisKendaraan,
                         },
@@ -50,7 +51,7 @@ export default function RegisterScreens({ navigation }) {
 
                 if (profileError) throw profileError;
                 
-                Alert.alert('Berhasil', 'Silakan cek email untuk verifikasi (jika diaktifkan) atau langsung login.');
+                Alert.alert('Berhasil', 'Pendaftaran sukses! Silakan login.');
                 safeNavigate('Login');
             }
         } catch (error) {
@@ -70,7 +71,7 @@ export default function RegisterScreens({ navigation }) {
             </View>
 
             <View style={styles.section}>
-                <Text style={styles.label}>Password (Min. 6 Karakter)</Text>
+                <Text style={styles.label}>Password</Text>
                 <TextInput value={password} onChangeText={setPassword} placeholder="******" style={styles.input} secureTextEntry />
             </View>
 
