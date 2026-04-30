@@ -1,121 +1,240 @@
-import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-// Perhatikan: Jika folder 'lib' ada di root (luar src), gunakan ../../
-// Jika folder 'lib' ada di dalam 'src', gunakan ../lib/supabase
-import { supabase } from '../lib/supabase';
-import { navigate } from '../navigation/rootNavigation';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+
+import { supabase } from '../../supabase';
+import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 
 export default function RegisterScreens({ navigation }) {
+    const [step, setStep] = useState(1);
+    
+    // Form Data
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [nama, setNama] = useState('');
-    const [jenisKendaraan, setJenisKendaraan] = useState('');
+    const [displayName, setDisplayName] = useState('');
+    const [vehicleName, setVehicleName] = useState('');
+    
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
-    const isDisabled = useMemo(() => {
-        return !email.includes('@') || password.length < 6 || !nama.trim() || !jenisKendaraan || loading;
-    }, [email, password, nama, jenisKendaraan, loading]);
+    // Step 1 validation
+    const isStep1Valid = email.includes('@') && password.length >= 6;
+    // Step 2 validation
+    const isStep2Valid = displayName.trim().length > 0;
 
-    const safeNavigate = (routeName) => {
-        if (navigation?.navigate) {
-            navigation.navigate(routeName);
-            return;
-        }
-        navigate(routeName);
+    const handleNext = () => {
+        if (!isStep1Valid) return;
+        setStep(2);
     };
 
-    const handleSignUp = async () => {
-        if (isDisabled) return;
+    const handleBack = () => {
+        if (step === 2) {
+            setStep(1);
+        } else {
+            navigation.goBack();
+        }
+    };
+
+    const handleRegister = async () => {
+        if (!isStep2Valid || loading) return;
         setLoading(true);
 
         try {
-            const { data, error: authError } = await supabase.auth.signUp({
-                email,
-                password,
+            const { data, error } = await supabase.auth.signUp({
+                email: email.trim(),
+                password: password,
+                options: {
+                    data: {
+                        display_name: displayName,
+                        vehicle_name: vehicleName,
+                    }
+                }
             });
 
-            if (authError) throw authError;
-
-            const user = data?.user;
-
-            if (user) {
-                const { error: profileError } = await supabase
-                    .from('profiles')
-                    .insert([
-                        {
-                            id: user.id, 
-                            display_name: nama.trim(),
-                            vehicle_type: jenisKendaraan,
-                        },
-                    ]);
-
-                if (profileError) throw profileError;
-                
-                Alert.alert('Berhasil', 'Pendaftaran sukses! Silakan login.');
-                safeNavigate('Login');
-            }
+            if (error) throw error;
+            Alert.alert('Registrasi Berhasil!', 'Silakan periksa email Anda untuk verifikasi (jika diaktifkan) atau login.');
+            navigation.navigate('Login');
         } catch (error) {
-            Alert.alert('Registration Error', error.message);
+            Alert.alert('Registrasi Gagal', error.message);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.title}>Buat Akun Baru</Text>
-            
-            <View style={styles.section}>
-                <Text style={styles.label}>Email</Text>
-                <TextInput value={email} onChangeText={setEmail} placeholder="email@contoh.com" style={styles.input} keyboardType="email-address" autoCapitalize="none" />
-            </View>
+        <SafeAreaView style={styles.container}>
+            <StatusBar style="light" backgroundColor={colors.background} />
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                
+                {/* Background Glow */}
+                <View style={styles.glowTop} />
 
-            <View style={styles.section}>
-                <Text style={styles.label}>Password</Text>
-                <TextInput value={password} onChangeText={setPassword} placeholder="******" style={styles.input} secureTextEntry />
-            </View>
-
-            <View style={styles.section}>
-                <Text style={styles.label}>Nama Tampilan</Text>
-                <TextInput value={nama} onChangeText={setNama} placeholder="Nama di Peta" style={styles.input} maxLength={15} />
-            </View>
-
-            <View style={styles.section}>
-                <Text style={styles.label}>Jenis Kendaraan</Text>
-                <View style={styles.row}>
-                    {['Motor', 'Mobil'].map((v) => (
-                        <Pressable key={v} onPress={() => setJenisKendaraan(v)} style={[styles.chip, jenisKendaraan === v && styles.chipActive]}>
-                            <Text style={[styles.chipText, jenisKendaraan === v && styles.chipTextActive]}>{v}</Text>
+                <View style={styles.content}>
+                    {/* Header with Back Button */}
+                    <View style={styles.topHeader}>
+                        <Pressable onPress={handleBack} style={styles.backButton}>
+                            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
                         </Pressable>
-                    ))}
+                        <Text style={styles.stepIndicator}>TAHAP {step} DARI 2</Text>
+                        <View style={{ width: 40 }} />
+                    </View>
+
+                    <View style={styles.headerSection}>
+                        <Text style={styles.mainTitle}>{step === 1 ? 'Data Akses' : 'Identitas Radar'}</Text>
+                        <Text style={styles.subtitle}>
+                            {step === 1 
+                                ? 'Buat kredensial akses untuk bergabung ke dalam jaringan.'
+                                : 'Lengkapi identitas diri dan kendaraan untuk visibilitas di radar.'}
+                        </Text>
+                    </View>
+
+                    {/* Form Section */}
+                    <View style={styles.formSection}>
+                        
+                        {/* ── STEP 1: Email & Password ── */}
+                        {step === 1 && (
+                            <View style={styles.stepContainer}>
+                                <View style={styles.inputGroup}>
+                                    <MaterialCommunityIcons name="email-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.inputField}
+                                        placeholder="Alamat Email"
+                                        placeholderTextColor={colors.textDisabled}
+                                        value={email}
+                                        onChangeText={setEmail}
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                    />
+                                </View>
+
+                                <View style={styles.inputGroup}>
+                                    <MaterialCommunityIcons name="lock-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.inputField}
+                                        placeholder="Password (Min. 6 Karakter)"
+                                        placeholderTextColor={colors.textDisabled}
+                                        value={password}
+                                        onChangeText={setPassword}
+                                        secureTextEntry={!showPassword}
+                                    />
+                                    <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.togglePassword}>
+                                        <MaterialCommunityIcons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textMuted} />
+                                    </Pressable>
+                                </View>
+
+                                <Pressable
+                                    onPress={handleNext}
+                                    disabled={!isStep1Valid}
+                                    style={[styles.primaryButton, !isStep1Valid && styles.primaryButtonDisabled]}
+                                >
+                                    <Text style={styles.primaryButtonText}>LANJUTKAN</Text>
+                                    <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} style={{ marginLeft: 8 }} />
+                                </Pressable>
+                            </View>
+                        )}
+
+                        {/* ── STEP 2: Identitas ── */}
+                        {step === 2 && (
+                            <View style={styles.stepContainer}>
+                                <View style={styles.inputGroup}>
+                                    <MaterialCommunityIcons name="account-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.inputField}
+                                        placeholder="Callsign (Nama Tampil)"
+                                        placeholderTextColor={colors.textDisabled}
+                                        value={displayName}
+                                        onChangeText={setDisplayName}
+                                    />
+                                </View>
+
+                                <View style={styles.inputGroup}>
+                                    <MaterialCommunityIcons name="car-sports" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.inputField}
+                                        placeholder="Unit Kendaraan (Opsional)"
+                                        placeholderTextColor={colors.textDisabled}
+                                        value={vehicleName}
+                                        onChangeText={setVehicleName}
+                                    />
+                                </View>
+
+                                <Pressable
+                                    onPress={handleRegister}
+                                    disabled={!isStep2Valid || loading}
+                                    style={[styles.primaryButton, (!isStep2Valid || loading) && styles.primaryButtonDisabled]}
+                                >
+                                    {loading ? (
+                                        <ActivityIndicator color={colors.white} size={24} />
+                                    ) : (
+                                        <>
+                                            <MaterialCommunityIcons name="radar" size={20} color={colors.white} style={{ marginRight: 8 }} />
+                                            <Text style={styles.primaryButtonText}>BUAT IDENTITAS</Text>
+                                        </>
+                                    )}
+                                </Pressable>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Login Link */}
+                    {step === 1 && (
+                        <View style={styles.footer}>
+                            <Text style={styles.footerText}>Sudah memiliki akses? </Text>
+                            <Pressable onPress={() => navigation.navigate('Login')}>
+                                <Text style={styles.loginLink}>Masuk Sistem</Text>
+                            </Pressable>
+                        </View>
+                    )}
                 </View>
-            </View>
-
-            <Pressable onPress={handleSignUp} disabled={isDisabled} style={[styles.btn, isDisabled && styles.btnDisabled]}>
-                <Text style={styles.btnText}>{loading ? 'Memproses...' : 'Daftar Sekarang'}</Text>
-            </Pressable>
-
-            <Pressable onPress={() => safeNavigate('Login')} style={styles.link}>
-                <Text style={styles.linkText}>Sudah punya akun? Login</Text>
-            </Pressable>
-        </ScrollView>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { padding: 24, flexGrow: 1, justifyContent: 'center', backgroundColor: '#fff' },
-    title: { fontSize: 28, fontWeight: 'bold', marginBottom: 30, color: '#111' },
-    section: { marginBottom: 20 },
-    label: { fontSize: 14, fontWeight: '600', marginBottom: 8, color: '#444' },
-    input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, fontSize: 16 },
-    row: { flexDirection: 'row', gap: 10 },
-    chip: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, borderColor: '#ddd' },
-    chipActive: { backgroundColor: '#111', borderColor: '#111' },
-    chipText: { color: '#444', fontWeight: '500' },
-    chipTextActive: { color: '#fff' },
-    btn: { backgroundColor: '#111', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-    btnDisabled: { backgroundColor: '#ccc' },
-    btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-    link: { marginTop: 20, alignItems: 'center' },
-    linkText: { color: '#666', fontSize: 14 }
+    container: { flex: 1, backgroundColor: colors.background },
+    scrollContent: { flexGrow: 1, justifyContent: 'center', minHeight: '100%' },
+
+    glowTop: {
+        position: 'absolute', top: '-15%', right: '-20%',
+        width: 400, height: 400, borderRadius: 200,
+        backgroundColor: colors.primary, opacity: 0.1,
+    },
+
+    content: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xxl, zIndex: 10 },
+
+    topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40 },
+    backButton: { width: 40, height: 40, borderRadius: radius.full, backgroundColor: colors.cardElevated, justifyContent: 'center', alignItems: 'center' },
+    stepIndicator: { fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.primaryMuted, letterSpacing: 2 },
+
+    headerSection: { marginBottom: 32 },
+    mainTitle: { fontSize: 32, fontFamily: fonts.black, color: colors.textPrimary, letterSpacing: -1, marginBottom: spacing.xs },
+    subtitle: { fontSize: fontSize.sm, fontFamily: fonts.regular, color: colors.textSecondary, lineHeight: 20 },
+
+    formSection: { marginBottom: spacing.xl },
+    stepContainer: { width: '100%' },
+
+    inputGroup: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: colors.inputBg, borderRadius: radius.md,
+        borderWidth: 1, borderColor: colors.border,
+        paddingHorizontal: spacing.md, paddingVertical: 4,
+        marginBottom: spacing.md,
+    },
+    inputIcon: { marginRight: spacing.sm },
+    inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.regular, color: colors.textPrimary },
+    togglePassword: { padding: spacing.sm },
+
+    primaryButton: {
+        flexDirection: 'row', backgroundColor: colors.primary, borderRadius: radius.md,
+        paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
+        elevation: 4, marginTop: spacing.md,
+    },
+    primaryButtonDisabled: { backgroundColor: colors.borderLight, elevation: 0 },
+    primaryButtonText: { color: colors.white, fontSize: fontSize.md, fontFamily: fonts.bold, letterSpacing: 1 },
+
+    footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: spacing.xl },
+    footerText: { fontSize: fontSize.sm, fontFamily: fonts.regular, color: colors.textMuted },
+    loginLink: { fontSize: fontSize.sm, fontFamily: fonts.bold, color: colors.primary },
 });

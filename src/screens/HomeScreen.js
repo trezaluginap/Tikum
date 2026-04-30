@@ -1,100 +1,160 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
-  Modal,
+  Animated,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
+import MapView from 'react-native-maps';
 
-// Pastikan struktur path folder ini sama persis dengan yang ada di laptop teman lu
 import { supabase } from '../../supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { ActiveTripsCard } from '../components/home/ActiveTripsCard';
+import { CreateRoomModal } from '../components/home/CreateRoomModal';
+import { HomeHeader } from '../components/home/HomeHeader';
+import { JoinRoomModal } from '../components/home/JoinRoomModal';
+import { TipsCard } from '../components/home/TipsCard';
+import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
+import { useActiveTrips } from '../hooks/useActiveTrips';
+import { useLocationSearch } from '../hooks/useLocationSearch';
+import { useOsrmRoute } from '../hooks/useOsrmRoute';
 
-const { width } = Dimensions.get('window');
+// Default region Indonesia
+const INDONESIA_REGION = {
+  latitude: -2.5,
+  longitude: 118.0,
+  latitudeDelta: 30,
+  longitudeDelta: 30,
+};
 
 export default function HomeScreen() {
   const navigation = useNavigation();
-  const { user } = useAuth(); // Menarik "identitas" dari satpam Gatekeeper
-  const [modalVisible, setModalVisible] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
-  // Mengambil nama dari metadata user (diisi saat register)
+  // ── Modals ──
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [joinModalVisible, setJoinModalVisible] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+
+  // ── Loading (split) ──
+  const [createLoading, setCreateLoading] = useState(false);
+  const [joinLoading, setJoinLoading] = useState(false);
+
+  // ── Vehicle ──
+  const [vehicleCount, setVehicleCount] = useState(1);
+
+  // ── Hooks ──
+  const origin = useLocationSearch();
+  const destination = useLocationSearch();
+  const { routeCoords, routeSummary } = useOsrmRoute(origin.coords, destination.coords);
+  const { activeTrips, loading: tripsLoading } = useActiveTrips();
+
+  // ── Animations ──
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  // ── Reset saat keluar ──
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        origin.clearAll();
+        destination.clearAll();
+        setVehicleCount(1);
+        setPinInput('');
+      };
+    }, [])
+  );
+
   const displayName = user?.user_metadata?.display_name || 'Pengguna';
   const profileInitial = displayName.substring(0, 2).toUpperCase();
+  const isCreateReady = !!origin.coords && !!destination.coords && !createLoading;
 
-  // --- FUNGSI BUAT ROOM (CAPTAIN) ---
+  // ── Handler: Buat Room ──
   const handleCreateRoom = async () => {
-    setLoading(true);
+    setCreateLoading(true);
     try {
-      // 1. Safety check
-      if (!user || !user.id) {
-        throw new Error("Sesi tidak valid, silakan login ulang.");
-      }
+      if (!user?.id) throw new Error('Sesi tidak valid, silakan login ulang.');
+      if (!origin.coords || !destination.coords) throw new Error('Asal dan tujuan harus dipilih.');
 
-      // 2. Generate PIN 6 digit acak
       const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-
-      console.log('📍 Membuat room dengan PIN:', generatedPin);
-
-      // 3. Simpan ke database Supabase
       const { data, error } = await supabase
         .from('rooms')
-        .insert([
-          { 
-            room_pin: generatedPin, 
-            host_id: user.id, // Pakai ID dari AuthContext
-            is_active: true 
-          }
-        ])
+        .insert([{ room_pin: generatedPin, host_id: user.id, is_active: true }])
         .select();
 
-      if (error) {
-        console.error('❌ Supabase Error:', error);
-        throw new Error(error.message || 'Gagal menyimpan room ke database');
-      }
+      if (error) throw new Error(error.message);
+      if (!data?.length) throw new Error('Room dibuat tapi data tidak terambil');
 
-      if (!data || data.length === 0) {
-        throw new Error('Room berhasil dibuat tapi data tidak terambil');
-      }
+      const createdRoom = data[0];
+      const { error: tripError } = await supabase
+        .from('room_trips')
+        .upsert([{
+          room_id: createdRoom.id,
+          origin_latitude: origin.coords.latitude,
+          origin_longitude: origin.coords.longitude,
+          destination_latitude: destination.coords.latitude,
+          destination_longitude: destination.coords.longitude,
+          vehicle_count: vehicleCount,
+        }], { onConflict: 'room_id' });
 
-      Alert.alert("✅ Sukses!", `Room dibuat dengan PIN: ${generatedPin}`);
-      
-      // 4. Navigasi ke MapScreen sambil membawa parameter
-      navigation.navigate('Map', { roomId: data[0].id, pin: generatedPin });
+      if (tripError) console.warn('Trip setup error:', tripError.message);
 
+      Alert.alert('✅ Sukses!', `Room dibuat!\nPIN: ${generatedPin}`);
+
+      navigation.navigate('Map', {
+        roomId: createdRoom.id,
+        pin: generatedPin,
+        role: 'leader',
+        origin: origin.coords,
+        destination: destination.coords,
+        originName: origin.name,
+        destinationName: destination.name,
+        vehicleCount,
+        preloadedRoute: routeCoords,
+        preloadedSummary: routeSummary,
+      });
+
+      setCreateModalVisible(false);
+      origin.clearAll();
+      destination.clearAll();
+      setVehicleCount(1);
     } catch (error) {
-      console.error("❌ Create Room Error:", error);
-      Alert.alert(
-        "Gagal Membuat Room", 
-        error.message || "Terjadi kesalahan yang tidak diketahui"
-      );
+      Alert.alert('Gagal Membuat Room', error.message);
     } finally {
-      setLoading(false);
+      setCreateLoading(false);
     }
   };
 
-  // --- FUNGSI GABUNG ROOM (GUEST) ---
+  // ── Handler: Gabung Room ──
   const handleJoinRoom = async () => {
-    if (pinInput.length !== 6) {
-      Alert.alert("Validasi", "PIN harus terdiri dari 6 digit angka.");
+    if (!/^\d{6}$/.test(pinInput)) {
+      Alert.alert('Validasi', 'PIN harus 6 digit angka.');
       return;
     }
-
-    setLoading(true);
+    setJoinLoading(true);
     try {
-      console.log('🔍 Mencari room dengan PIN:', pinInput);
-
-      // 1. Cek apakah PIN ada di database dan aktif
       const { data, error } = await supabase
         .from('rooms')
         .select('id, is_active')
@@ -102,174 +162,245 @@ export default function HomeScreen() {
         .eq('is_active', true)
         .single();
 
-      if (error) {
-        console.error('❌ Supabase Error:', error);
-        throw new Error(error.message || "PIN tidak ditemukan atau room sudah ditutup.");
+      if (error || !data) throw new Error('PIN tidak ditemukan atau room ditutup.');
+
+      const { data: tripData, error: tripError } = await supabase
+        .from('room_trips')
+        .select('origin_latitude, origin_longitude, destination_latitude, destination_longitude, vehicle_count')
+        .eq('room_id', data.id)
+        .maybeSingle();
+
+      let joinOrigin = null, joinDestination = null, joinedVehicleCount = null;
+      if (!tripError && tripData) {
+        joinOrigin = { latitude: tripData.origin_latitude, longitude: tripData.origin_longitude };
+        joinDestination = { latitude: tripData.destination_latitude, longitude: tripData.destination_longitude };
+        joinedVehicleCount = tripData.vehicle_count;
       }
 
-      if (!data) {
-        throw new Error("PIN tidak ditemukan atau room sudah ditutup.");
-      }
-
-      // 2. Jika ketemu, tutup modal dan lempar ke Map
-      setModalVisible(false);
+      setJoinModalVisible(false);
       setPinInput('');
-      Alert.alert("✅ Sukses!", "Berhasil bergabung dengan room");
-      navigation.navigate('Map', { roomId: data.id });
-
+      Alert.alert('✅ Sukses!', 'Berhasil bergabung!');
+      navigation.navigate('Map', {
+        roomId: data.id,
+        role: 'member',
+        origin: joinOrigin,
+        destination: joinDestination,
+        vehicleCount: joinedVehicleCount,
+      });
     } catch (error) {
-      console.error("❌ Join Room Error:", error);
-      Alert.alert(
-        "Gagal Gabung", 
-        error.message || "Terjadi kesalahan yang tidak diketahui"
-      );
+      Alert.alert('Gagal Gabung', error.message);
     } finally {
-      setLoading(false);
+      setJoinLoading(false);
     }
   };
 
+  // ── Handler: Resume trip ──
+  const handleTripResume = (trip) => {
+    const td = trip.room_trips?.[0];
+    if (!td) return;
+    navigation.navigate('Map', {
+      roomId: trip.id,
+      pin: trip.room_pin,
+      role: 'leader',
+      origin: { latitude: td.origin_latitude, longitude: td.origin_longitude },
+      destination: { latitude: td.destination_latitude, longitude: td.destination_longitude },
+      vehicleCount: td.vehicle_count,
+    });
+  };
+
+  // ─────────────────────────────────
+  //  RENDER
+  // ─────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
-      
-      {/* --- MODAL INPUT PIN --- */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+      <StatusBar style="light" />
+
+      {/* ── MODALS ── */}
+      <CreateRoomModal
+        visible={createModalVisible}
+        onClose={() => setCreateModalVisible(false)}
+        origin={origin}
+        destination={destination}
+        vehicleCount={vehicleCount}
+        onDecrement={() => setVehicleCount((v) => Math.max(1, v - 1))}
+        onIncrement={() => setVehicleCount((v) => Math.min(99, v + 1))}
+        routeCoords={routeCoords}
+        routeSummary={routeSummary}
+        onCreateRoom={handleCreateRoom}
+        loading={createLoading}
+        isReady={isCreateReady}
+      />
+      <JoinRoomModal
+        visible={joinModalVisible}
+        onClose={() => { setJoinModalVisible(false); setPinInput(''); }}
+        pinInput={pinInput}
+        onPinChange={setPinInput}
+        onJoin={handleJoinRoom}
+        loading={joinLoading}
+      />
+
+      {/* ── HEADER ── */}
+      <HomeHeader
+        displayName={displayName}
+        profileInitial={profileInitial}
+        onProfilePress={() => navigation.navigate('Profile')}
+      />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollInner}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Gabung Titik Kumpul</Text>
-            <Text style={styles.modalSubTitle}>Masukkan 6 digit PIN dari Leader</Text>
-            
-            <TextInput
-              style={styles.pinInput}
-              placeholder="000000"
-              keyboardType="number-pad"
-              maxLength={6}
-              value={pinInput}
-              onChangeText={setPinInput}
-              editable={!loading}
-            />
-
-            <View style={styles.modalAction}>
-              <TouchableOpacity 
-                style={[styles.btnModal, styles.btnCancel]} 
-                onPress={() => { setModalVisible(false); setPinInput(''); }}
-                disabled={loading}
-              >
-                <Text style={styles.textCancel}>Batal</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.btnModal, styles.btnJoin]} 
-                onPress={handleJoinRoom}
-                disabled={loading}
-              >
-                <Text style={styles.textJoin}>{loading ? 'Cek...' : 'Gabung'}</Text>
-              </TouchableOpacity>
-            </View>
+        {/* ══ MAP — ALWAYS VISIBLE ══ */}
+        <Animated.View style={[styles.mapContainer, { opacity: fadeAnim }]}>
+          <MapView
+            style={styles.map}
+            initialRegion={INDONESIA_REGION}
+            customMapStyle={mapDarkStyle}
+          />
+          <View style={styles.mapOverlay}>
+            <Text style={styles.mapOverlayText}>🇮🇩 Indonesia</Text>
           </View>
-        </View>
-      </Modal>
+        </Animated.View>
 
-      {/* --- HEADER --- */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.subText}>Halo 👋</Text>
-          <Text style={styles.welcomeText}>{displayName}</Text>
-        </View>
-        <TouchableOpacity 
-          style={styles.profileCircle}
-          onPress={() => navigation.navigate('Profile')}
-        >
-           <Text style={styles.profileInitial}>{profileInitial}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} style={styles.content}>
-        <View style={styles.statusCard}>
-          <View style={styles.statusInfo}>
-            <Text style={styles.statusLabel}>Status Perjalanan</Text>
-            <Text style={styles.statusValue}>Siap untuk TiKum?</Text>
-          </View>
-          <MaterialCommunityIcons name="map-marker-distance" size={40} color="rgba(255,255,255,0.7)" />
-        </View>
-
-        <Text style={styles.sectionTitle}>Aksi Cepat</Text>
-        <View style={styles.actionGrid}>
-          <TouchableOpacity 
-            style={[styles.actionButton, { backgroundColor: '#E3F2FD' }]}
-            onPress={handleCreateRoom}
-            disabled={loading}
+        {/* ══ QUICK ACTIONS ══ */}
+        <Animated.View style={[styles.quickActions, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => setCreateModalVisible(true)}
+            activeOpacity={0.8}
           >
-            <View style={[styles.iconCircle, { backgroundColor: '#2196F3' }]}>
-              <MaterialCommunityIcons name="plus" size={28} color="white" />
+            <View style={[styles.actionIcon, { backgroundColor: 'rgba(99,102,241,0.15)' }]}>
+              <MaterialCommunityIcons name="rocket-launch" size={24} color={colors.primary} />
             </View>
-            <Text style={styles.actionText}>Buat Room</Text>
-            <Text style={styles.actionSubText}>Jadi Leader</Text>
+            <Text style={styles.actionTitle}>Buat Room</Text>
+            <Text style={styles.actionDesc}>Atur rute convoy</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[styles.actionButton, { backgroundColor: '#F1F8E9' }]}
-            onPress={() => setModalVisible(true)}
-            disabled={loading}
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => setJoinModalVisible(true)}
+            activeOpacity={0.8}
           >
-            <View style={[styles.iconCircle, { backgroundColor: '#4CAF50' }]}>
-              <MaterialCommunityIcons name="login" size={24} color="white" />
+            <View style={[styles.actionIcon, { backgroundColor: 'rgba(16,185,129,0.15)' }]}>
+              <MaterialCommunityIcons name="account-group" size={24} color={colors.success} />
             </View>
-            <Text style={styles.actionText}>Gabung Room</Text>
-            <Text style={styles.actionSubText}>Masukkan PIN</Text>
+            <Text style={styles.actionTitle}>Gabung Room</Text>
+            <Text style={styles.actionDesc}>Masukkan PIN</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        <Text style={styles.sectionTitle}>Layanan Lainnya</Text>
-        <View style={styles.menuList}>
-          <TouchableOpacity style={styles.menuListItem}>
-            <View style={styles.menuLeft}>
-              <MaterialCommunityIcons name="history" size={24} color="#666" />
-              <Text style={styles.menuText}>Riwayat Perjalanan</Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color="#CCC" />
-          </TouchableOpacity>
-        </View>
+        {/* ══ ACTIVE TRIPS ══ */}
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }], paddingHorizontal: spacing.lg }}>
+          <ActiveTripsCard
+            activeTrips={activeTrips}
+            loading={tripsLoading}
+            onTripResume={handleTripResume}
+            onHistoryPress={() => {}}
+          />
+        </Animated.View>
+
+        {/* ══ TIPS ══ */}
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }], paddingHorizontal: spacing.lg }}>
+          <TipsCard />
+        </Animated.View>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ── Dark map style (Google Maps) ──
+const mapDarkStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
+  { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#0e1626' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#255763' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#283d6a' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
+];
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#fff', paddingTop: 60, borderBottomLeftRadius: 20, borderBottomRightRadius: 20, elevation: 4 },
-  welcomeText: { fontSize: 20, fontWeight: '800', color: '#333' },
-  subText: { color: '#888', fontSize: 14 },
-  profileCircle: { width: 45, height: 45, backgroundColor: '#2196F3', borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
-  profileInitial: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  content: { padding: 20 },
-  statusCard: { backgroundColor: '#2196F3', padding: 25, borderRadius: 20, marginBottom: 25, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statusLabel: { color: '#E3F2FD', fontSize: 14 },
-  statusValue: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#444', marginBottom: 15 },
-  actionGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
-  actionButton: { width: width * 0.43, padding: 20, borderRadius: 20, alignItems: 'flex-start', elevation: 2 },
-  iconCircle: { width: 45, height: 45, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  actionText: { fontSize: 15, fontWeight: 'bold' },
-  actionSubText: { fontSize: 12, color: '#666' },
-  menuList: { backgroundColor: '#fff', borderRadius: 20, padding: 10 },
-  menuListItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  menuLeft: { flexDirection: 'row', alignItems: 'center' },
-  menuText: { marginLeft: 15, fontSize: 15, color: '#444' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '85%', backgroundColor: 'white', borderRadius: 20, padding: 25, alignItems: 'center' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold' },
-  modalSubTitle: { fontSize: 14, color: '#666', marginBottom: 20 },
-  pinInput: { width: '100%', height: 50, backgroundColor: '#F5F5F5', borderRadius: 10, textAlign: 'center', fontSize: 24, fontWeight: 'bold', letterSpacing: 10, marginBottom: 20 },
-  modalAction: { flexDirection: 'row', justifyContent: 'space-between' },
-  btnModal: { flex: 1, padding: 15, borderRadius: 10, alignItems: 'center', marginHorizontal: 5 },
-  btnCancel: { backgroundColor: '#F5F5F5' },
-  btnJoin: { backgroundColor: '#2196F3' },
-  textJoin: { color: 'white', fontWeight: 'bold' },
-  textCancel: { color: '#666' }
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollInner: {
+    paddingBottom: 30,
+  },
+
+  // Map
+  mapContainer: {
+    height: 200,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  mapOverlay: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    left: spacing.sm,
+    backgroundColor: colors.mapOverlay,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm + 2,
+    borderRadius: radius.sm,
+  },
+  mapOverlayText: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+
+  // Quick Actions
+  quickActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  actionCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  actionTitle: {
+    fontSize: fontSize.lg,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  actionDesc: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.regular,
+    color: colors.textMuted,
+  },
+
+  // Sections below quick actions get horizontal padding
+  sectionPadding: {
+    paddingHorizontal: spacing.lg,
+  },
 });
