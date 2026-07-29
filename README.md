@@ -1,50 +1,91 @@
-# Welcome to your Expo app 👋
+Ini *template* `README.md` yang sudah disusun dengan struktur profesional. Isinya memuat pengenalan proyek, panduan instalasi lokal untuk teman lu, dan SOP Git Flow yang mengikat.
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Lu tinggal *copy* seluruh teks di dalam kotak kode di bawah ini, lalu *paste* ke file `README.md` di proyek lu. Ubah bagian `[username-lu]` dengan *username* GitHub lu yang asli.
 
-## Get started
+```markdown
+# TiKum (Titik Kumpul) 📍
 
-1. Install dependencies
+Aplikasi pelacakan lokasi *real-time* ringan untuk manajemen rombongan konvoi, *touring*, atau *road trip*. Proyek ini dibangun untuk meminimalisir anggota terpisah menggunakan komunikasi kordinat instan antar pengguna.
 
+---
+
+## 🚀 Tech Stack
+* **Frontend:** React Native (Expo CLI)
+* **Backend & Database:** Supabase (PostgreSQL)
+* **Real-time Engine:** Supabase Broadcast (WebSockets)
+
+---
+
+## 🛠️ Instalasi & Setup Lokal
+
+1. **Clone repositori ini:**
+   ```bash
+   git clone [https://github.com/](https://github.com/)[username-lu]/TiKum-App.git
+   cd TiKum-App
+   ```
+
+2. **Install dependencies:**
    ```bash
    npm install
    ```
 
-2. Start the app
+3. **Setup Environment Variables:**
+   Minta *keys* Supabase kepada *Project Owner*. Buat file bernama `.env` di *root folder* proyek (sejajar dengan `package.json`) dan isi dengan format berikut:
+   ```env
+   EXPO_PUBLIC_SUPABASE_URL=https://[PROJECT-ID].supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=[ANON-KEY-PANJANG]
+   ```
+   > **⚠️ PERINGATAN:** Jangan pernah melakukan *commit* file `.env` ke GitHub. Pastikan `.env` sudah terdaftar di dalam file `.gitignore`.
 
+4. **Jalankan aplikasi:**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+---
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 📜 SOP Kolaborasi & Git Flow (WAJIB BACA)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Agar kode tidak mengalami *Merge Conflict* parah dan proyek tetap terstruktur layaknya standar industri, seluruh *developer* wajib mengikuti protokol di bawah ini.
 
-## Get a fresh project
+### ⛔ Aturan Mutlak
+**DILARANG KERAS MELAKUKAN `git push origin main`.** Cabang (`branch`) `main` adalah ruang suci yang hanya berisi kode stabil dan siap rilis. Seluruh proses integrasi fitur sehari-hari dilakukan di cabang **`develop`**.
 
-When you're ready, run:
+### 🔄 Alur Kerja Harian
 
+**1. Sinkronisasi Kode Terbaru**
+Sebelum mulai *coding*, selalu pastikan posisi lu berada di cabang `develop` dan tarik pembaruan terbaru dari *server*:
 ```bash
-npm run reset-project
+git checkout develop
+git pull origin develop
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+**2. Buat Cabang Baru (Branching)**
+Jangan *coding* langsung di `develop`. Buat cabang khusus untuk tiket/fitur yang sedang lu kerjakan di Trello. Gunakan format penamaan: `feat/[nama-fitur]`, `fix/[nama-bug]`, atau `ui/[nama-layar]`.
+```bash
+git checkout -b feat/guest-registration
+```
 
-## Learn more
+**3. Ngoding & Simpan (Commit)**
+Eksekusi kode lu. Setelah fitur berfungsi, simpan perubahan secara lokal. Pesan *commit* harus jelas mendeskripsikan apa yang lu buat.
+```bash
+git add .
+git commit -m "feat: Selesai membuat UI input form registrasi"
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+**4. Dorong ke GitHub (Push)**
+Dorong cabang fitur tersebut ke *server* GitHub (BUKAN ke `main` atau `develop`).
+```bash
+git push origin feat/guest-registration
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+**5. Gabungkan Kode (Pull Request / PR)**
+* Buka repositori TiKum di browser (GitHub).
+* Klik tombol hijau **"Compare & pull request"**.
+* Pastikan *base branch* diarahkan ke **`develop`** (target penggabungan).
+* Beri tahu *partner* bahwa PR sudah siap direviu.
+* **Reviewer:** Buka PR tersebut, cek kode. Jika tidak ada potensi *error*, *Reviewer* yang berhak mengklik tombol **Merge Pull Request**. (Jangan *merge* PR buatan sendiri).
 
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+*Catatan: SOP ini dibuat agar kita fokus menyelesaikan fitur (menyelesaikan masalah), bukan menghabiskan waktu berjam-jam untuk memperbaiki masalah Git (menciptakan masalah baru).*
+```
