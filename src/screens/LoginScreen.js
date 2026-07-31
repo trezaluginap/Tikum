@@ -1,17 +1,23 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+    ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+    Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { supabase } from '../../supabase';
 import { navigate } from '../navigation/rootNavigation';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
+import ForgotPasswordModal from '../components/ForgotPasswordModal';
 
 export default function LoginScreen({ navigation }) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [focusedField, setFocusedField] = useState(null);
+    const [forgotModalVisible, setForgotModalVisible] = useState(false);
 
     const isDisabled = useMemo(() => {
         return !email.includes('@') || password.length < 6 || loading;
@@ -23,7 +29,7 @@ export default function LoginScreen({ navigation }) {
 
         try {
             const { error } = await supabase.auth.signInWithPassword({
-                email: email.trim(),
+                email: email.trim().toLowerCase(),
                 password: password,
             });
 
@@ -46,7 +52,18 @@ export default function LoginScreen({ navigation }) {
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar style="light" backgroundColor={colors.background} />
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+            {/* Forgot Password Modal */}
+            <ForgotPasswordModal
+                visible={forgotModalVisible}
+                onClose={() => setForgotModalVisible(false)}
+            />
+
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 
                 {/* Background Glow */}
                 <View style={styles.glowTop} />
@@ -66,8 +83,8 @@ export default function LoginScreen({ navigation }) {
 
                     {/* Form */}
                     <View style={styles.formSection}>
-                        <View style={styles.inputGroup}>
-                            <MaterialCommunityIcons name="email-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                        <View style={[styles.inputGroup, focusedField === 'email' && styles.inputGroupFocused]}>
+                            <MaterialCommunityIcons name="email-outline" size={20} color={focusedField === 'email' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                             <TextInput
                                 style={styles.inputField}
                                 placeholder="Alamat Email"
@@ -77,11 +94,13 @@ export default function LoginScreen({ navigation }) {
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 editable={!loading}
+                                onFocus={() => setFocusedField('email')}
+                                onBlur={() => setFocusedField(null)}
                             />
                         </View>
 
-                        <View style={styles.inputGroup}>
-                            <MaterialCommunityIcons name="lock-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                        <View style={[styles.inputGroup, focusedField === 'password' && styles.inputGroupFocused]}>
+                            <MaterialCommunityIcons name="lock-outline" size={20} color={focusedField === 'password' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                             <TextInput
                                 style={styles.inputField}
                                 placeholder="Password Akses"
@@ -90,6 +109,8 @@ export default function LoginScreen({ navigation }) {
                                 onChangeText={setPassword}
                                 secureTextEntry={!showPassword}
                                 editable={!loading}
+                                onFocus={() => setFocusedField('password')}
+                                onBlur={() => setFocusedField(null)}
                             />
                             <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.togglePassword}>
                                 <MaterialCommunityIcons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textMuted} />
@@ -97,7 +118,7 @@ export default function LoginScreen({ navigation }) {
                         </View>
 
                         <View style={styles.forgotRow}>
-                            <Pressable>
+                            <Pressable onPress={() => setForgotModalVisible(true)}>
                                 <Text style={styles.forgotText}>Lupa Password?</Text>
                             </Pressable>
                         </View>
@@ -127,6 +148,7 @@ export default function LoginScreen({ navigation }) {
                     </View>
                 </View>
             </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -167,6 +189,11 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: colors.border,
         paddingHorizontal: spacing.md, paddingVertical: 4,
         marginBottom: spacing.md,
+    },
+    inputGroupFocused: {
+        borderColor: colors.primary,
+        borderWidth: 1.5,
+        backgroundColor: 'rgba(99,102,241,0.05)',
     },
     inputIcon: { marginRight: spacing.sm },
     inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.regular, color: colors.textPrimary },

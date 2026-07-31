@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import {
@@ -33,6 +34,7 @@ export default function ProfileScreen() {
   // State untuk loading
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // Load user data saat pertama kali
   useEffect(() => {
@@ -63,14 +65,58 @@ export default function ProfileScreen() {
   const handlePickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.7,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setProfileImage(result.assets[0].uri);
+        const localUri = result.assets[0].uri;
+        setProfileImage(localUri); // Show immediately
+
+        // Upload to Supabase Storage
+        setUploadingPhoto(true);
+        try {
+          const fileExt = localUri.split('.').pop()?.toLowerCase() || 'jpg';
+          const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+          const filePath = `avatars/${fileName}`;
+
+          // Read the file as base64
+          const base64 = await FileSystem.readAsStringAsync(localUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          // Convert base64 to ArrayBuffer
+          const binaryStr = atob(base64);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+
+          const { error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(filePath, bytes.buffer, {
+              contentType: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
+              upsert: true,
+            });
+
+          if (uploadError) throw uploadError;
+
+          // Get the public URL
+          const { data: urlData } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+
+          if (urlData?.publicUrl) {
+            setProfileImage(urlData.publicUrl);
+          }
+        } catch (uploadErr) {
+          console.warn('Photo upload failed, using local URI:', uploadErr.message);
+          // Keep the local URI as fallback — user can still see it locally
+        } finally {
+          setUploadingPhoto(false);
+        }
       }
     } catch (error) {
       Alert.alert('Error', 'Gagal memilih gambar');
@@ -98,6 +144,18 @@ export default function ProfileScreen() {
       });
 
       if (error) throw error;
+
+      // Upsert to public.profiles table to share display name and avatar with other room members
+      try {
+        await supabase.from('profiles').upsert({
+          id: user.id,
+          display_name: `${displayName}||${profileImage || ''}`,
+          updated_at: new Date(),
+        });
+      } catch (dbErr) {
+        console.error('Error upserting to public.profiles:', dbErr);
+      }
+
       Alert.alert('Sukses', 'Profil berhasil diperbarui');
     } catch (error) {
       Alert.alert('Gagal Update', error.message || 'Terjadi kesalahan');
@@ -159,9 +217,15 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             )}
-            <View style={styles.editBadge}>
-              <MaterialCommunityIcons name="camera" size={16} color={colors.white} />
-            </View>
+            {uploadingPhoto ? (
+              <View style={styles.editBadge}>
+                <ActivityIndicator size={12} color={colors.white} />
+              </View>
+            ) : (
+              <View style={styles.editBadge}>
+                <MaterialCommunityIcons name="camera" size={16} color={colors.white} />
+              </View>
+            )}
           </TouchableOpacity>
 
           <Text style={styles.headerText}>{displayName || 'Pilot Baru'}</Text>

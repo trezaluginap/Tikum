@@ -1,11 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   SafeAreaView,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -13,12 +16,22 @@ import {
   TouchableOpacity,
   Platform,
   View,
+  Image,
+  Linking,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 
 import { supabase } from '../../supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
+import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import {
+  startBackgroundLocationTracking,
+  stopBackgroundLocationTracking,
+} from '../services/backgroundLocation';
+import ConvoyDialog from '../components/common/ConvoyDialog';
+import ConvoyToast from '../components/common/ConvoyToast';
 
 // Dark map style
 const mapDarkStyle = [
@@ -47,12 +60,79 @@ export default function MapScreen({ route, navigation }) {
   const [routeCoords, setRouteCoords] = useState([]);
   const [routeSummary, setRouteSummary] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [initialRegion, setInitialRegion] = useState({
     latitude: -6.9175, longitude: 107.6191,
     latitudeDelta: 0.1, longitudeDelta: 0.1,
   });
 
+  // ── Network Status ──
+  const { isConnected, isInternetReachable } = useNetworkStatus();
+  const isOffline = !isConnected || !isInternetReachable;
+
   const displayName = user?.user_metadata?.display_name || 'Pengguna';
+
+  // ── Decode routing mode from encoded vehicleCount ──
+  const encodedVC = vehicleCount || 0;
+  const modeCode = encodedVC >= 1000 ? Math.floor(encodedVC / 1000) : 2;
+  const decodedVehicleCount = encodedVC >= 1000 ? (encodedVC % 1000) : encodedVC;
+  const initialRoutingMode = modeCode === 1 ? 'motorcycle' : modeCode === 3 ? 'auto_no_toll' : 'auto_toll';
+
+  // ── Routing Mode & In-App Navigation ──
+  const [routingMode] = useState(initialRoutingMode); // fixed from room creation
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [navRouteCoords, setNavRouteCoords] = useState([]); // route from myLocation to origin
+  const [navRouteSummary, setNavRouteSummary] = useState(null);
+
+  // ── Navigation Mode & Convoy Radar States ──
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [isAutoFollow, setIsAutoFollow] = useState(true);
+  const [maneuvers, setManeuvers] = useState([]);
+  const [sosActive, setSosActive] = useState(false);
+  const [sosUsers, setSosUsers] = useState({}); // { [userId]: true }
+
+  // ── Custom UI Notifications & Dialogs ──
+  const [dialogConfig, setDialogConfig] = useState({ visible: false });
+  const [toastConfig, setToastConfig] = useState({ visible: false });
+
+  const showToast = (type, title, message, duration = 4000) => {
+    setToastConfig({ visible: true, type, title, message });
+    setTimeout(() => setToastConfig((prev) => ({ ...prev, visible: false })), duration);
+  };
+
+  // ── User Profiles Cache (Display Name & Photo URL) ──
+  const [userProfiles, setUserProfiles] = useState({});
+
+  const fetchProfiles = async (userIds) => {
+    const uniqueIds = [...new Set(userIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, display_name')
+        .in('id', uniqueIds);
+        
+      if (error) throw error;
+      
+      const newProfiles = {};
+      data.forEach(p => {
+        const parts = p.display_name ? p.display_name.split('||') : [];
+        newProfiles[p.id] = {
+          name: parts[0] || 'Member',
+          photoUrl: parts[1] || null
+        };
+      });
+      
+      setUserProfiles(prev => ({ ...prev, ...newProfiles }));
+    } catch (err) {
+      console.error('Error fetching user profiles:', err);
+    }
+  };
+
+  const myProfile = {
+    name: displayName,
+    photoUrl: user?.user_metadata?.profile_photo_url || null
+  };
 
   // ── Init: preloaded route + region ──
   useEffect(() => {
@@ -74,7 +154,7 @@ export default function MapScreen({ route, navigation }) {
     }
   }, []);
 
-  // ── Location tracking + Supabase realtime ──
+  // ── Sync profile, fetch initial locations/profiles, track location + Supabase realtime ──
   useEffect(() => {
     let subscriptionLocations;
     let subscriptionRooms;
@@ -85,11 +165,74 @@ export default function MapScreen({ route, navigation }) {
       try {
         if (!currentUserId) { setErrorMsg('User tidak terautentikasi'); return; }
 
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') { setErrorMsg('Izin lokasi ditolak'); return; }
+        // Request foreground permission first
+        const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+        if (fgStatus !== 'granted') {
+          setPermissionDenied(true);
+          setErrorMsg('Izin lokasi ditolak. Aktifkan di Pengaturan.');
+          return;
+        }
         if (!roomId) return;
 
-        // Watch position
+        // Request background permission (for tracking when app is minimized)
+        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+        if (bgStatus === 'granted') {
+          await startBackgroundLocationTracking(roomId);
+        } else {
+          console.warn('Background location permission not granted - foreground only mode');
+        }
+
+        // 1. Sync current user profile to public profiles table
+        const profileImage = user?.user_metadata?.profile_photo_url || '';
+        try {
+          await supabase.from('profiles').upsert({
+            id: currentUserId,
+            display_name: `${displayName}||${profileImage}`,
+            updated_at: new Date(),
+          });
+        } catch (profileErr) {
+          console.error('Sync profile on map mount error:', profileErr);
+        }
+
+        // 2. Fetch initial locations in room
+        try {
+          const { data: locData, error: locError } = await supabase
+            .from('locations')
+            .select('user_id, latitude, longitude, heading, updated_at')
+            .eq('room_id', roomId);
+          
+          if (locError) throw locError;
+          if (locData && locData.length > 0) {
+            const friends = locData.filter(f => f.user_id !== currentUserId);
+            setFriendsLocations(friends);
+            
+            // Fetch profiles for these users
+            const ids = locData.map(l => l.user_id);
+            fetchProfiles(ids);
+          }
+        } catch (err) {
+          console.error('Error fetching initial locations:', err);
+        }
+
+        // 3. Get current position immediately
+        try {
+          const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          if (initialLoc) {
+            const { latitude, longitude, heading } = initialLoc.coords;
+            setMyLocation({ latitude, longitude, heading });
+
+            await supabase.from('locations').upsert({
+              user_id: currentUserId,
+              room_id: roomId,
+              latitude, longitude, heading: heading || 0,
+              updated_at: new Date(),
+            });
+          }
+        } catch (err) {
+          console.error('Initial location fetch/upsert error:', err);
+        }
+
+        // 4. Watch position
         locationWatcher = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, distanceInterval: 5 },
           async (location) => {
@@ -100,8 +243,7 @@ export default function MapScreen({ route, navigation }) {
               await supabase.from('locations').upsert({
                 user_id: currentUserId,
                 room_id: roomId,
-                latitude, longitude, heading,
-                display_name: displayName,
+                latitude, longitude, heading: heading || 0,
                 updated_at: new Date(),
               });
             } catch (err) {
@@ -110,27 +252,64 @@ export default function MapScreen({ route, navigation }) {
           }
         );
 
-        // Realtime subscription (Locations)
+        // 5. Realtime subscription (Locations)
         subscriptionLocations = supabase
           .channel(`room:${roomId}:locations`)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, payload => {
             if (payload.event === 'DELETE') {
                setFriendsLocations(prev => prev.filter(f => f.user_id !== payload.old?.user_id));
             } else if (payload.new?.room_id === roomId && payload.new?.user_id !== currentUserId) {
-              updateFriends(payload.new);
+               const newLoc = payload.new;
+               updateFriends(newLoc);
+               
+               // Fetch profile if not loaded yet
+               setUserProfiles(prev => {
+                 if (!prev[newLoc.user_id]) {
+                   fetchProfiles([newLoc.user_id]);
+                 }
+                 return prev;
+               });
             }
           })
           .subscribe();
 
-        // Realtime subscription (Rooms - Auto Kick)
+        // 6. Realtime subscription (Rooms - Auto Kick)
         subscriptionRooms = supabase
           .channel(`room:${roomId}:status`)
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, payload => {
              if (payload.new && payload.new.is_active === false) {
-                Alert.alert('Room Ditutup', 'Perjalanan telah diselesaikan oleh Leader.', [
-                   { text: 'OK', onPress: () => navigation.navigate('Home') } // atau goBack() depending on nav stack
-                ]);
+                setDialogConfig({
+                  visible: true,
+                  type: 'warning',
+                  icon: 'door-closed',
+                  title: 'Room Ditutup',
+                  message: 'Perjalanan telah diselesaikan oleh Leader.',
+                  buttons: [
+                    { text: 'KEMBALI KE BERANDA', style: 'primary', onPress: () => navigation.navigate('Home') }
+                  ]
+                });
              }
+          })
+          .subscribe();
+
+        // 7. Realtime subscription (SOS Emergency Alerts)
+        const subscriptionSos = supabase
+          .channel(`room:${roomId}:sos`)
+          .on('broadcast', { event: 'sos_alert' }, (payload) => {
+            const data = payload?.payload;
+            if (!data?.userId || data.userId === currentUserId) return;
+
+            if (data.isSos) {
+              setSosUsers((prev) => ({ ...prev, [data.userId]: true }));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              showToast('danger', '🚨 SOS DARURAT CONVOY!', `${data.userName || 'Member'} memerlukan bantuan darurat! Cek posisi di radar.`);
+            } else {
+              setSosUsers((prev) => {
+                const copy = { ...prev };
+                delete copy[data.userId];
+                return copy;
+              });
+            }
           })
           .subscribe();
 
@@ -144,6 +323,7 @@ export default function MapScreen({ route, navigation }) {
       if (subscriptionLocations) supabase.removeChannel(subscriptionLocations);
       if (subscriptionRooms) supabase.removeChannel(subscriptionRooms);
       if (locationWatcher) locationWatcher.remove();
+      stopBackgroundLocationTracking();
     };
   }, [roomId]);
 
@@ -155,27 +335,93 @@ export default function MapScreen({ route, navigation }) {
     });
   };
 
-  // ── OSRM route fetch (if not preloaded) ──
-  useEffect(() => {
-    if (routeCoords.length > 0) return;
-    if (origin && destination) {
-      (async () => {
-        try {
-          const url = `https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=geojson`;
-          const res = await fetch(url);
-          const json = await res.json();
-          if (!json.routes?.length) throw new Error('Rute tidak ditemukan');
-          const sel = json.routes[0];
-          setRouteCoords(sel.geometry.coordinates.map(([lon, lat]) => ({ latitude: lat, longitude: lon })));
-          setRouteSummary({ distanceKm: (sel.distance / 1000).toFixed(1), durationMin: Math.ceil(sel.duration / 60) });
-        } catch (err) { console.error('OSRM error:', err); }
-      })();
+  // ── Valhalla route fetch (convoy route: origin → destination) ──
+  const fetchConvoyRoute = async (mode) => {
+    if (!origin || !destination) return;
+    setRouteLoading(true);
+    try {
+      const result = await fetchValhallaRoute(origin, destination, mode);
+      if (result) {
+        setRouteCoords(result.routeCoords);
+        setRouteSummary(result.routeSummary);
+        if (result.maneuvers) setManeuvers(result.maneuvers);
+      }
+    } catch (err) {
+      console.error('Valhalla convoy route error:', err);
+    } finally {
+      setRouteLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (preloadedRoute?.length > 0) return; // already have preloaded
+    fetchConvoyRoute(routingMode);
   }, [origin, destination]);
+
+  // ── In-app nav route (myLocation → origin) ──
+  useEffect(() => {
+    if (!myLocation || !origin) {
+      setNavRouteCoords([]);
+      setNavRouteSummary(null);
+      return;
+    }
+    const dist = parseFloat(getDistance(myLocation.latitude, myLocation.longitude, origin.latitude, origin.longitude));
+    if (dist <= 0.5) {
+      setNavRouteCoords([]);
+      setNavRouteSummary(null);
+      return;
+    }
+    // Fetch in-app nav route
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await fetchValhallaRoute(myLocation, origin, routingMode);
+        if (cancelled) return;
+        if (result) {
+          setNavRouteCoords(result.routeCoords);
+          setNavRouteSummary(result.routeSummary);
+        }
+      } catch (err) {
+        console.error('Nav route error:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [
+    myLocation?.latitude && Math.round(myLocation.latitude * 100),
+    myLocation?.longitude && Math.round(myLocation.longitude * 100),
+    origin?.latitude, origin?.longitude,
+    routingMode,
+  ]);
+
+
+  // ── Camera Auto-Follow in Navigation Mode ──
+  useEffect(() => {
+    if (isNavigating && isAutoFollow && myLocation && mapRef.current) {
+      try {
+        mapRef.current.animateCamera(
+          {
+            center: { latitude: myLocation.latitude, longitude: myLocation.longitude },
+            pitch: 55,
+            heading: myLocation.heading || 0,
+            zoom: 18,
+          },
+          { duration: 800 }
+        );
+      } catch (e) {
+        console.error('Animate camera error:', e);
+      }
+    }
+  }, [
+    isNavigating,
+    isAutoFollow,
+    myLocation?.latitude && Math.round(myLocation.latitude * 1000),
+    myLocation?.longitude && Math.round(myLocation.longitude * 1000),
+    myLocation?.heading,
+  ]);
 
   // ── Fit map to route ──
   useEffect(() => {
-    if (mapRef.current && routeCoords.length > 0) {
+    if (!isNavigating && mapRef.current && routeCoords.length > 0) {
       try {
         mapRef.current.fitToCoordinates(routeCoords, {
           edgePadding: { top: 120, right: 50, bottom: 280, left: 50 },
@@ -183,7 +429,7 @@ export default function MapScreen({ route, navigation }) {
         });
       } catch (err) { console.error('fitToCoordinates error:', err); }
     }
-  }, [routeCoords]);
+  }, [routeCoords, isNavigating]);
 
   // ── Handlers ──
   const handleCopyPin = async () => {
@@ -196,47 +442,79 @@ export default function MapScreen({ route, navigation }) {
     }
   };
 
+  const handleSharePin = async () => {
+    if (!pin) return;
+    try {
+      await Share.share({
+        message: `🚗 Gabung konvoi TiKum!\n\nPIN Room: ${pin}\n\nDownload TiKum dan masukkan PIN di atas untuk bergabung ke rombongan.`,
+        title: 'Bagikan PIN TiKum',
+      });
+    } catch (err) {
+      console.error('Share error:', err);
+    }
+  };
+
+  const handleOpenSettings = () => {
+    Linking.openSettings();
+  };
+
   const handleLeaveRoom = () => {
+    const cleanupAndLeave = async () => {
+      try {
+        await stopBackgroundLocationTracking();
+        if (user?.id) {
+          await supabase.from('locations').delete().eq('user_id', user.id).eq('room_id', roomId);
+        }
+        navigation.goBack();
+      } catch (error) {
+        console.error('Error leaving room:', error);
+        navigation.goBack();
+      }
+    };
+
     if (role === 'leader') {
-      Alert.alert('Selesaikan Perjalanan?', 'Ini akan menutup room dan mengakhiri sesi convoy untuk semua member.', [
-        { text: 'Batal', style: 'cancel' },
-        { 
-          text: 'Selesaikan', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              // Hapus lokasi leader
-              if (user?.id) {
-                 await supabase.from('locations').delete().eq('user_id', user.id).eq('room_id', roomId);
-              }
-              // Nonaktifkan room di Supabase
-              await supabase
-                .from('rooms')
-                .update({ is_active: false, updated_at: new Date() })
-                .eq('id', roomId);
-              
-              navigation.goBack();
-            } catch (error) {
-              Alert.alert('Error', 'Gagal menutup room.');
-            }
-          } 
-        },
-      ]);
-    } else {
-      Alert.alert('Keluar Room?', 'Kamu akan keluar dari pemantauan radar ini.', [
-        { text: 'Batal', style: 'cancel' },
-        { text: 'Keluar', style: 'destructive', onPress: async () => {
-            try {
-               if (user?.id) {
+      setDialogConfig({
+        visible: true,
+        type: 'danger',
+        icon: 'exit-run',
+        title: 'Keluar dari Room',
+        message: 'Pilih tindakan untuk sesi konvoi ini:',
+        buttons: [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Keluar Saja', style: 'secondary', onPress: cleanupAndLeave },
+          {
+            text: 'Bubarkan Sesi',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await stopBackgroundLocationTracking();
+                if (user?.id) {
                   await supabase.from('locations').delete().eq('user_id', user.id).eq('room_id', roomId);
-               }
-               navigation.goBack();
-            } catch (error) {
-               console.error('Error delete location', error);
-               navigation.goBack();
-            }
-        } },
-      ]);
+                }
+                await supabase
+                  .from('rooms')
+                  .update({ is_active: false })
+                  .eq('id', roomId);
+                navigation.goBack();
+              } catch (error) {
+                showToast('danger', 'Error', 'Gagal membubarkan sesi.');
+              }
+            },
+          },
+        ],
+      });
+    } else {
+      setDialogConfig({
+        visible: true,
+        type: 'warning',
+        icon: 'account-remove',
+        title: 'Keluar Room?',
+        message: 'Kamu akan keluar dari pemantauan radar ini.',
+        buttons: [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Keluar', style: 'destructive', onPress: cleanupAndLeave },
+        ],
+      });
     }
   };
 
@@ -270,12 +548,221 @@ export default function MapScreen({ route, navigation }) {
 
   const memberCount = friendsLocations.length + 1; // +1 untuk diri sendiri
 
+  // ── Proximity Check to Tikum (Origin) ──
+  const distanceToTikum = myLocation && origin
+    ? parseFloat(getDistance(myLocation.latitude, myLocation.longitude, origin.latitude, origin.longitude))
+    : null;
+
+  // ── Last Seen helper ──
+  const getLastSeen = (updatedAt) => {
+    if (!updatedAt) return null;
+    const diff = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 1000);
+    if (diff < 60) return 'baru saja';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m lalu`;
+    return `${Math.floor(diff / 3600)}j lalu`;
+  };
+
+  // ── Navigation Mode Controls ──
+  const handleToggleNavigation = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const nextState = !isNavigating;
+    setIsNavigating(nextState);
+    setIsAutoFollow(true);
+
+    if (nextState && myLocation && mapRef.current) {
+      mapRef.current.animateCamera({
+        center: { latitude: myLocation.latitude, longitude: myLocation.longitude },
+        pitch: 55,
+        heading: myLocation.heading || 0,
+        zoom: 18,
+      }, { duration: 600 });
+    } else if (!nextState && mapRef.current) {
+      mapRef.current.animateCamera({ pitch: 0, heading: 0 }, { duration: 400 });
+      if (routeCoords.length > 0) {
+        mapRef.current.fitToCoordinates(routeCoords, {
+          edgePadding: { top: 120, right: 50, bottom: 280, left: 50 },
+          animated: true,
+        });
+      }
+    }
+  };
+
+  // ── SOS Emergency Trigger ──
+  const handleToggleSOS = () => {
+    const nextSosState = !sosActive;
+    if (nextSosState) {
+      setDialogConfig({
+        visible: true,
+        type: 'danger',
+        icon: 'alert-decagram',
+        title: 'KIRIM SINYAL SOS?',
+        message: 'Sinyal darurat akan dikirimkan ke seluruh anggota rombongan konvoi!',
+        buttons: [
+          { text: 'Batal', style: 'cancel' },
+          {
+            text: 'YA, KIRIM SOS',
+            style: 'destructive',
+            onPress: async () => {
+              setSosActive(true);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              const channel = supabase.channel(`room:${roomId}:sos`);
+              await channel.send({
+                type: 'broadcast',
+                event: 'sos_alert',
+                payload: { userId: user?.id, isSos: true, userName: displayName },
+              });
+              showToast('danger', 'SOS AKTIF', 'Sinyal SOS telah dikirimkan ke rombongan.');
+            },
+          },
+        ],
+      });
+    } else {
+      setSosActive(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      supabase.channel(`room:${roomId}:sos`).send({
+        type: 'broadcast',
+        event: 'sos_alert',
+        payload: { userId: user?.id, isSos: false, userName: displayName },
+      });
+      showToast('success', 'SOS NONAKTIF', 'Status darurat telah diminimalkan.');
+    }
+  };
+
+  // ── Convoy Order Engine ──
+  const getConvoyOrder = () => {
+    if (!routeCoords || routeCoords.length === 0) return { ahead: null, behind: null, rank: 1, total: 1 };
+
+    const getPolylineIndex = (loc) => {
+      if (!loc?.latitude || !loc?.longitude) return -1;
+      let minIdx = 0;
+      let minVal = Infinity;
+      const step = Math.max(1, Math.floor(routeCoords.length / 150));
+      for (let i = 0; i < routeCoords.length; i += step) {
+        const d = Math.pow(routeCoords[i].latitude - loc.latitude, 2) + Math.pow(routeCoords[i].longitude - loc.longitude, 2);
+        if (d < minVal) {
+          minVal = d;
+          minIdx = i;
+        }
+      }
+      return minIdx;
+    };
+
+    const members = [];
+    if (myLocation) {
+      members.push({
+        userId: user?.id,
+        name: 'Kamu',
+        isSelf: true,
+        index: getPolylineIndex(myLocation),
+        lat: myLocation.latitude,
+        lng: myLocation.longitude,
+      });
+    }
+
+    friendsLocations.forEach((f) => {
+      const p = userProfiles[f.user_id] || { name: 'Member' };
+      members.push({
+        userId: f.user_id,
+        name: p.name,
+        isSelf: false,
+        index: getPolylineIndex(f),
+        lat: f.latitude,
+        lng: f.longitude,
+      });
+    });
+
+    // Sort descending by index (higher index = closer to Destination = Lead)
+    members.sort((a, b) => b.index - a.index);
+
+    const selfIdx = members.findIndex((m) => m.isSelf);
+    if (selfIdx === -1) return { ahead: null, behind: null, rank: 1, total: members.length };
+
+    const ahead = selfIdx > 0 ? members[selfIdx - 1] : null;
+    const behind = selfIdx < members.length - 1 ? members[selfIdx + 1] : null;
+
+    if (ahead && myLocation) {
+      ahead.distanceKm = getDistance(myLocation.latitude, myLocation.longitude, ahead.lat, ahead.lng);
+    }
+    if (behind && myLocation) {
+      behind.distanceKm = getDistance(myLocation.latitude, myLocation.longitude, behind.lat, behind.lng);
+    }
+
+    return {
+      ahead,
+      behind,
+      rank: selfIdx + 1,
+      total: members.length,
+    };
+  };
+
+  // ── Next Maneuver Resolver ──
+  const getNextManeuver = () => {
+    if (!maneuvers || maneuvers.length === 0 || !myLocation || routeCoords.length === 0) return null;
+
+    let minIdx = 0;
+    let minVal = Infinity;
+    for (let i = 0; i < routeCoords.length; i += 5) {
+      const d = Math.pow(routeCoords[i].latitude - myLocation.latitude, 2) + Math.pow(routeCoords[i].longitude - myLocation.longitude, 2);
+      if (d < minVal) {
+        minVal = d;
+        minIdx = i;
+      }
+    }
+
+    const upcoming = maneuvers.find((m) => (m.begin_shape_index || 0) >= minIdx);
+    if (!upcoming) return maneuvers[maneuvers.length - 1] || null;
+
+    const targetCoord = routeCoords[upcoming.begin_shape_index] || destination;
+    const distKm = targetCoord ? getDistance(myLocation.latitude, myLocation.longitude, targetCoord.latitude, targetCoord.longitude) : '0.0';
+
+    return {
+      instruction: upcoming.instruction || 'Tetap ikuti rute',
+      distanceKm: distKm,
+      type: upcoming.type || 0,
+    };
+  };
+
+  const getManeuverIcon = (type) => {
+    switch (type) {
+      case 1: case 2: case 3: return 'arrow-up-bold';
+      case 10: case 11: case 15: return 'arrow-right-top';
+      case 12: case 13: case 14: return 'arrow-sharp-right';
+      case 17: case 18: case 22: return 'arrow-left-top';
+      case 19: case 20: case 21: return 'arrow-sharp-left';
+      case 26: case 27: return 'u-turn';
+      case 28: case 29: return 'rotate-right';
+      default: return 'navigation-variant';
+    }
+  };
+
+  const convoyOrder = getConvoyOrder();
+  const nextManeuver = getNextManeuver();
+
   // ─────────────────────────────
   //  RENDER
   // ─────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+
+      {/* ══ CUSTOM OVERLAY DIALOGS & TOASTS ══ */}
+      <ConvoyToast
+        visible={toastConfig.visible}
+        type={toastConfig.type}
+        title={toastConfig.title}
+        message={toastConfig.message}
+        onClose={() => setToastConfig((prev) => ({ ...prev, visible: false }))}
+      />
+
+      <ConvoyDialog
+        visible={dialogConfig.visible}
+        type={dialogConfig.type}
+        icon={dialogConfig.icon}
+        title={dialogConfig.title}
+        message={dialogConfig.message}
+        buttons={dialogConfig.buttons}
+        onClose={() => setDialogConfig({ visible: false })}
+      />
 
       {/* ══ MAP ══ */}
       <MapView
@@ -284,8 +771,19 @@ export default function MapScreen({ route, navigation }) {
         initialRegion={initialRegion}
         customMapStyle={mapDarkStyle}
       >
+        {/* Convoy route (primary) */}
         {routeCoords.length > 0 && (
           <Polyline coordinates={routeCoords} strokeColor={colors.primary} strokeWidth={4} />
+        )}
+
+        {/* In-app navigation route to Tikum (secondary) */}
+        {navRouteCoords.length > 0 && (
+          <Polyline
+            coordinates={navRouteCoords}
+            strokeColor="#F59E0B"
+            strokeWidth={3}
+            lineDashPattern={[8, 6]}
+          />
         )}
 
         {origin && (
@@ -304,12 +802,16 @@ export default function MapScreen({ route, navigation }) {
           </Marker>
         )}
 
-        {/* User location marker */}
+        {/* User location marker with avatar/initials */}
         {myLocation && (
           <Marker coordinate={myLocation} rotation={myLocation.heading} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.myMarkerWrap}>
               <View style={styles.myMarkerDot}>
-                <MaterialCommunityIcons name="navigation" size={18} color={colors.white} />
+                {myProfile.photoUrl ? (
+                  <Image source={{ uri: myProfile.photoUrl }} style={styles.markerAvatarImg} />
+                ) : (
+                  <Text style={styles.markerInitials}>{myProfile.name.substring(0, 2).toUpperCase()}</Text>
+                )}
               </View>
               <View style={styles.markerLabel}>
                 <Text style={styles.markerLabelText}>Kamu</Text>
@@ -318,26 +820,34 @@ export default function MapScreen({ route, navigation }) {
           </Marker>
         )}
 
-        {/* Friend markers with display name */}
-        {friendsLocations.map((friend) => (
-          <Marker
-            key={friend.user_id}
-            coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
-            rotation={friend.heading}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.friendMarkerWrap}>
-              <View style={styles.friendMarkerDot}>
-                <MaterialCommunityIcons name="account" size={16} color={colors.white} />
+        {/* Friend markers with avatar/initials and display name */}
+        {friendsLocations.map((friend) => {
+          const profile = userProfiles[friend.user_id] || { name: 'Member', photoUrl: null };
+          const isUserSos = !!sosUsers[friend.user_id];
+          return (
+            <Marker
+              key={friend.user_id}
+              coordinate={{ latitude: friend.latitude, longitude: friend.longitude }}
+              rotation={friend.heading}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={styles.friendMarkerWrap}>
+                <View style={[styles.friendMarkerDot, isUserSos && styles.sosMarkerDot]}>
+                  {profile.photoUrl && !profile.photoUrl.startsWith('file://') ? (
+                    <Image source={{ uri: profile.photoUrl }} style={styles.friendMarkerAvatarImg} />
+                  ) : (
+                    <Text style={styles.friendMarkerInitials}>{profile.name.substring(0, 2).toUpperCase()}</Text>
+                  )}
+                </View>
+                <View style={[styles.markerLabel, isUserSos && styles.sosMarkerLabel]}>
+                  <Text style={styles.markerLabelText} numberOfLines={1}>
+                    {isUserSos ? `⚠️ ${profile.name}` : profile.name}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.markerLabel}>
-                <Text style={styles.markerLabelText} numberOfLines={1}>
-                  {friend.display_name || 'Member'}
-                </Text>
-              </View>
-            </View>
-          </Marker>
-        ))}
+            </Marker>
+          );
+        })}
       </MapView>
 
       {/* ══ TOP BAR ══ */}
@@ -349,18 +859,140 @@ export default function MapScreen({ route, navigation }) {
         <View style={styles.topBarCenter}>
           <Text style={styles.topBarTitle}>TiKum</Text>
           {pin && (
-            <TouchableOpacity style={styles.pinBadge} onPress={handleCopyPin} activeOpacity={0.7}>
-              <Text style={styles.pinBadgeLabel}>PIN</Text>
-              <Text style={styles.pinBadgeValue}>{pin}</Text>
-              <MaterialCommunityIcons name="content-copy" size={12} color={colors.primaryMuted} />
-            </TouchableOpacity>
+            <View style={styles.pinRow}>
+              <TouchableOpacity style={styles.pinBadge} onPress={handleCopyPin} activeOpacity={0.7}>
+                <Text style={styles.pinBadgeLabel}>PIN</Text>
+                <Text style={styles.pinBadgeValue}>{pin}</Text>
+                <MaterialCommunityIcons name="content-copy" size={12} color={colors.primaryMuted} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shareBtn} onPress={handleSharePin} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="share-variant" size={16} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
-        <TouchableOpacity style={styles.topBarBtn} onPress={handleRecenter}>
-          <MaterialCommunityIcons name="crosshairs-gps" size={22} color={colors.textPrimary} />
+        <TouchableOpacity
+          style={[styles.topBarBtn, isNavigating && isAutoFollow && { backgroundColor: colors.primary }]}
+          onPress={() => {
+            setIsAutoFollow(true);
+            handleRecenter();
+          }}
+        >
+          <MaterialCommunityIcons
+            name="crosshairs-gps"
+            size={22}
+            color={isNavigating && isAutoFollow ? colors.white : colors.textPrimary}
+          />
         </TouchableOpacity>
       </View>
+
+      {/* ══ TURN-BY-TURN GUIDANCE BANNER (In Navigation Mode) ══ */}
+      {isNavigating && nextManeuver && (
+        <View style={styles.tbtBanner}>
+          <View style={styles.tbtIconContainer}>
+            <MaterialCommunityIcons
+              name={getManeuverIcon(nextManeuver.type)}
+              size={32}
+              color={colors.white}
+            />
+          </View>
+          <View style={styles.tbtTextContainer}>
+            <Text style={styles.tbtDistance}>
+              {parseFloat(nextManeuver.distanceKm) < 1
+                ? `${Math.round(parseFloat(nextManeuver.distanceKm) * 1000)} m`
+                : `${nextManeuver.distanceKm} km`}
+            </Text>
+            <Text style={styles.tbtInstruction} numberOfLines={2}>
+              {nextManeuver.instruction}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* ══ OFFLINE BANNER ══ */}
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <MaterialCommunityIcons name="wifi-off" size={16} color={colors.warning} />
+          <Text style={styles.offlineBannerText}>
+            Koneksi terputus — lokasi tidak ter-update
+          </Text>
+        </View>
+      )}
+
+      {/* ══ PERMISSION DENIED BANNER ══ */}
+      {permissionDenied && (
+        <View style={styles.permissionBanner}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.permissionBannerTitle}>Izin Lokasi Ditolak</Text>
+            <Text style={styles.permissionBannerSub}>
+              TiKum memerlukan akses lokasi untuk menampilkan posisimu di radar konvoi.
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.permissionSettingsBtn} onPress={handleOpenSettings} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="cog" size={14} color={colors.white} />
+            <Text style={styles.permissionSettingsBtnText}>Buka Settings</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ══ TIKUM PROXIMITY WARNING BANNER ══ */}
+      {distanceToTikum !== null && distanceToTikum > 0.5 && (
+        <View style={styles.tikumBanner}>
+          <View style={styles.tikumBannerLeft}>
+            <MaterialCommunityIcons name="map-marker-alert" size={20} color="#F59E0B" />
+            <View style={{ marginLeft: spacing.sm, flex: 1 }}>
+              <Text style={styles.tikumBannerTitle}>Belum di Titik Kumpul</Text>
+              <Text style={styles.tikumBannerSub}>
+                Jarak: {distanceToTikum} km{navRouteSummary ? ` · ${navRouteSummary.durationMin} min` : ''}
+              </Text>
+            </View>
+          </View>
+          {navRouteCoords.length > 0 && (
+            <View style={styles.tikumBannerBadge}>
+              <MaterialCommunityIcons name="navigation-variant" size={12} color="#F59E0B" />
+              <Text style={styles.tikumBannerBadgeText}>Rute aktif</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* ══ FLOATING ACTION BUTTONS (Speedometer & SOS) ══ */}
+      <View style={styles.floatingControls}>
+        {/* Speedometer Badge */}
+        {isNavigating && (
+          <View style={styles.speedBadge}>
+            <Text style={styles.speedValue}>
+              {myLocation?.speed ? Math.round(myLocation.speed * 3.6) : 0}
+            </Text>
+            <Text style={styles.speedUnit}>KM/H</Text>
+          </View>
+        )}
+
+        {/* SOS Emergency Button */}
+        <TouchableOpacity
+          style={[styles.sosFloatingBtn, sosActive && styles.sosFloatingBtnActive]}
+          onPress={handleToggleSOS}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="alert-decagram" size={26} color={colors.white} />
+          <Text style={styles.sosFloatingText}>{sosActive ? 'SOS AKTIF' : 'SOS'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ══ ROUTING MODE BADGE ══ */}
+      {!isNavigating && (
+        <View style={styles.routeModeBadge}>
+          <MaterialCommunityIcons
+            name={routingMode === 'motorcycle' ? 'motorbike' : 'car'}
+            size={14}
+            color={colors.primary}
+          />
+          <Text style={styles.routeModeBadgeText}>
+            {routingMode === 'motorcycle' ? 'Motor' : routingMode === 'auto_toll' ? 'Mobil (Tol)' : 'Mobil (No Tol)'}
+          </Text>
+        </View>
+      )}
 
       {/* ══ BOTTOM PANEL ══ */}
       <View style={styles.bottomPanel}>
@@ -381,12 +1013,18 @@ export default function MapScreen({ route, navigation }) {
               <MaterialCommunityIcons name="account-group" size={16} color={colors.primary} />
               <Text style={styles.routeStatText}>{memberCount} member</Text>
             </View>
-            {vehicleCount && (
+            {decodedVehicleCount > 0 && (
               <>
                 <View style={styles.routeDivider} />
                 <View style={styles.routeStat}>
-                  <MaterialCommunityIcons name="car-multiple" size={16} color={colors.primary} />
-                  <Text style={styles.routeStatText}>{vehicleCount} mobil</Text>
+                  <MaterialCommunityIcons
+                    name={routingMode === 'motorcycle' ? 'motorbike' : 'car-multiple'}
+                    size={16}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.routeStatText}>
+                    {decodedVehicleCount} {routingMode === 'motorcycle' ? 'motor' : 'mobil'}
+                  </Text>
                 </View>
               </>
             )}
@@ -409,47 +1047,138 @@ export default function MapScreen({ route, navigation }) {
         )}
 
         {/* Members list */}
-        <View style={styles.membersSection}>
-          <Text style={styles.membersSectionTitle}>ANGGOTA CONVOY</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.membersList}>
-            {/* Self */}
-            <View style={styles.memberChip}>
-              <View style={[styles.memberAvatar, { backgroundColor: 'rgba(99,102,241,0.2)' }]}>
-                <MaterialCommunityIcons name="navigation" size={14} color={colors.primary} />
-              </View>
-              <View style={{ alignItems: 'center' }}>
-                 <Text style={styles.memberName}>Kamu</Text>
-              </View>
-              <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-            </View>
-
-            {/* Friends */}
-            {friendsLocations.map((friend) => {
-              const distance = myLocation && friend.latitude ? getDistance(myLocation.latitude, myLocation.longitude, friend.latitude, friend.longitude) : '?';
-              return (
-                <View key={friend.user_id} style={styles.memberChip}>
-                  <View style={[styles.memberAvatar, { backgroundColor: 'rgba(16,185,129,0.2)' }]}>
-                    <MaterialCommunityIcons name="account" size={14} color={colors.success} />
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={styles.memberName} numberOfLines={1}>
-                      {friend.display_name || 'Member'}
-                    </Text>
-                    <Text style={styles.memberDistance}>{distance} km dari kamu</Text>
-                  </View>
-                  <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
+        {!isNavigating && (
+          <View style={styles.membersSection}>
+            <Text style={styles.membersSectionTitle}>ANGGOTA CONVOY</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.membersList}>
+              {/* Self */}
+              <View style={styles.memberChip}>
+                <View style={styles.memberAvatarContainer}>
+                  {myProfile.photoUrl ? (
+                    <Image source={{ uri: myProfile.photoUrl }} style={styles.memberAvatarImg} />
+                  ) : (
+                    <View style={[styles.memberAvatar, { backgroundColor: 'rgba(99,102,241,0.2)' }]}>
+                      <Text style={styles.memberAvatarText}>{myProfile.name.substring(0, 2).toUpperCase()}</Text>
+                    </View>
+                  )}
                 </View>
-              );
-            })}
-
-            {friendsLocations.length === 0 && (
-              <View style={styles.waitingChip}>
-                <MaterialCommunityIcons name="account-clock" size={14} color={colors.textMuted} />
-                <Text style={styles.waitingText}>Menunggu member...</Text>
+                <View style={{ alignItems: 'center' }}>
+                   <Text style={styles.memberName}>Kamu</Text>
+                </View>
+                <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
               </View>
-            )}
-          </ScrollView>
-        </View>
+
+              {/* Friends */}
+              {friendsLocations.map((friend) => {
+                const distance = myLocation && friend.latitude ? getDistance(myLocation.latitude, myLocation.longitude, friend.latitude, friend.longitude) : '?';
+                const profile = userProfiles[friend.user_id] || { name: 'Member', photoUrl: null };
+                const lastSeen = getLastSeen(friend.updated_at);
+                const isStale = friend.updated_at && (Date.now() - new Date(friend.updated_at).getTime()) > 60000;
+                return (
+                  <View key={friend.user_id} style={styles.memberChip}>
+                    <View style={styles.memberAvatarContainer}>
+                      {profile.photoUrl && !profile.photoUrl.startsWith('file://') ? (
+                        <Image source={{ uri: profile.photoUrl }} style={styles.memberAvatarImg} />
+                      ) : (
+                        <View style={[styles.memberAvatar, { backgroundColor: 'rgba(16,185,129,0.2)' }]}>
+                          <Text style={[styles.memberAvatarText, { color: colors.success }]}>
+                            {profile.name.substring(0, 2).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={styles.memberName} numberOfLines={1}>
+                        {profile.name}
+                      </Text>
+                      <Text style={styles.memberDistance}>
+                        {distance} km{isStale && lastSeen ? ` · ${lastSeen}` : ''}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusDot, { backgroundColor: isStale ? colors.warning : colors.success }]} />
+                  </View>
+                );
+              })}
+
+              {friendsLocations.length === 0 && (
+                <View style={styles.waitingChip}>
+                  <MaterialCommunityIcons name="account-clock" size={14} color={colors.textMuted} />
+                  <Text style={styles.waitingText}>Menunggu member...</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ── CONVOY POSITION RADAR HUD (In Navigation Mode) ── */}
+        {isNavigating && (
+          <View style={styles.radarHudContainer}>
+            <Text style={styles.radarHudTitle}>URUTAN CONVOY (POSISI {convoyOrder.rank} / {convoyOrder.total})</Text>
+            <View style={styles.radarHudRow}>
+              {/* Behind */}
+              <View style={styles.radarMemberBox}>
+                <MaterialCommunityIcons name="arrow-down-thick" size={16} color={colors.textMuted} />
+                <Text style={styles.radarMemberLabel} numberOfLines={1}>
+                  {convoyOrder.behind ? convoyOrder.behind.name : 'Paling Belakang'}
+                </Text>
+                <Text style={styles.radarMemberDist}>
+                  {convoyOrder.behind ? `${convoyOrder.behind.distanceKm} km` : '-'}
+                </Text>
+              </View>
+
+              {/* Self Indicator */}
+              <View style={styles.radarSelfBox}>
+                <MaterialCommunityIcons name="navigation" size={18} color={colors.primary} />
+                <Text style={styles.radarSelfText}>KAMU</Text>
+              </View>
+
+              {/* Ahead */}
+              <View style={styles.radarMemberBox}>
+                <MaterialCommunityIcons name="arrow-up-thick" size={16} color={colors.success} />
+                <Text style={styles.radarMemberLabel} numberOfLines={1}>
+                  {convoyOrder.ahead ? convoyOrder.ahead.name : 'Paling Depan (Lead)'}
+                </Text>
+                <Text style={styles.radarMemberDist}>
+                  {convoyOrder.ahead ? `${convoyOrder.ahead.distanceKm} km` : '-'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── NAVIGATION MODE TOGGLE BUTTON ── */}
+        <TouchableOpacity
+          style={[styles.navToggleBtn, isNavigating && styles.navToggleBtnActive]}
+          onPress={handleToggleNavigation}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons
+            name={isNavigating ? 'stop-circle' : 'navigation-variant-outline'}
+            size={20}
+            color={colors.white}
+            style={{ marginRight: spacing.sm }}
+          />
+          <Text style={styles.navToggleBtnText}>
+            {isNavigating ? 'Akhiri Navigasi' : 'Mulai Perjalanan'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* ── Session Control Button ── */}
+        <TouchableOpacity
+          style={role === 'leader' ? styles.endTripBtn : styles.leaveTripBtn}
+          onPress={handleLeaveRoom}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons
+            name={role === 'leader' ? 'flag-checkered' : 'exit-run'}
+            size={18}
+            color={role === 'leader' ? colors.white : colors.danger}
+            style={{ marginRight: spacing.sm }}
+          />
+          <Text style={role === 'leader' ? styles.endTripBtnText : styles.leaveTripBtnText}>
+            {role === 'leader' ? 'Selesaikan Perjalanan' : 'Keluar Sesi Convoy'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* ══ ERROR ══ */}
@@ -489,6 +1218,9 @@ const styles = StyleSheet.create({
   topBarTitle: {
     fontSize: fontSize.lg, fontFamily: fonts.black, color: colors.primary, letterSpacing: -0.5,
   },
+  pinRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+  },
   pinBadge: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
     backgroundColor: 'rgba(99,102,241,0.12)',
@@ -497,23 +1229,46 @@ const styles = StyleSheet.create({
   },
   pinBadgeLabel: { fontSize: 9, fontFamily: fonts.bold, color: colors.primaryMuted, letterSpacing: 1 },
   pinBadgeValue: { fontSize: fontSize.sm, fontFamily: fonts.extraBold, color: colors.primary },
+  shareBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(99,102,241,0.12)',
+    justifyContent: 'center', alignItems: 'center',
+  },
 
   // ── Markers ──
   myMarkerWrap: { alignItems: 'center' },
   myMarkerDot: {
-    width: 32, height: 32, borderRadius: radius.full,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: colors.primary,
     justifyContent: 'center', alignItems: 'center',
-    borderWidth: 3, borderColor: colors.white,
+    borderWidth: 2, borderColor: colors.white,
     elevation: 6,
+    overflow: 'hidden',
+  },
+  markerAvatarImg: {
+    width: '100%', height: '100%',
+    borderRadius: 16,
+  },
+  markerInitials: {
+    fontSize: 11, fontFamily: fonts.bold,
+    color: colors.white,
   },
   friendMarkerWrap: { alignItems: 'center' },
   friendMarkerDot: {
-    width: 28, height: 28, borderRadius: radius.full,
+    width: 32, height: 32, borderRadius: 16,
     backgroundColor: colors.success,
     justifyContent: 'center', alignItems: 'center',
     borderWidth: 2, borderColor: colors.white,
     elevation: 4,
+    overflow: 'hidden',
+  },
+  friendMarkerAvatarImg: {
+    width: '100%', height: '100%',
+    borderRadius: 14,
+  },
+  friendMarkerInitials: {
+    fontSize: 10, fontFamily: fonts.bold,
+    color: colors.white,
   },
   markerLabel: {
     backgroundColor: 'rgba(15,23,42,0.8)',
@@ -580,8 +1335,20 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   memberAvatar: {
-    width: 24, height: 24, borderRadius: radius.full,
+    width: 24, height: 24, borderRadius: 12,
     justifyContent: 'center', alignItems: 'center',
+  },
+  memberAvatarContainer: {
+    width: 24, height: 24, borderRadius: 12,
+    overflow: 'hidden',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  memberAvatarImg: {
+    width: '100%', height: '100%',
+  },
+  memberAvatarText: {
+    fontSize: 9, fontFamily: fonts.bold,
+    color: colors.primary,
   },
   memberName: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.textPrimary, maxWidth: 80 },
   memberDistance: { fontSize: 9, fontFamily: fonts.medium, color: colors.textMuted },
@@ -604,4 +1371,348 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
   errorText: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.danger, flex: 1 },
+
+  // ── Offline Banner ──
+  offlineBanner: {
+    position: 'absolute',
+    top: 95,
+    left: spacing.lg, right: spacing.lg,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderRadius: radius.md,
+    padding: spacing.sm + 2,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    zIndex: 50,
+  },
+  offlineBannerText: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.semiBold,
+    color: colors.warning,
+    flex: 1,
+  },
+
+  // ── Permission Denied Banner ──
+  permissionBanner: {
+    position: 'absolute',
+    top: 95,
+    left: spacing.lg, right: spacing.lg,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    zIndex: 50,
+  },
+  permissionBannerTitle: {
+    fontSize: fontSize.xs + 1,
+    fontFamily: fonts.bold,
+    color: colors.danger,
+    marginBottom: 2,
+  },
+  permissionBannerSub: {
+    fontSize: fontSize.xs - 1,
+    fontFamily: fonts.regular,
+    color: colors.textMuted,
+  },
+  permissionSettingsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.danger,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.full,
+  },
+  permissionSettingsBtnText: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.semiBold,
+    color: colors.white,
+  },
+
+  // ── Tikum Proximity Banner ──
+  tikumBanner: {
+    position: 'absolute',
+    top: 130,
+    left: spacing.lg, right: spacing.lg,
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 45,
+    elevation: 8,
+  },
+  tikumBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  tikumBannerTitle: {
+    fontSize: fontSize.xs + 1,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+  },
+  tikumBannerSub: {
+    fontSize: fontSize.xs - 1,
+    fontFamily: fonts.medium,
+    color: colors.textMuted,
+  },
+  tikumBannerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.full,
+    gap: 4,
+  },
+  tikumBannerBadgeText: {
+    fontSize: fontSize.xs - 1,
+    fontFamily: fonts.semiBold,
+    color: '#F59E0B',
+  },
+
+  // ── Routing Mode Badge (read-only) ──
+  routeModeBadge: {
+    position: 'absolute',
+    bottom: 320,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: 'rgba(15,23,42,0.88)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md + 4,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.3)',
+    zIndex: 35,
+  },
+  routeModeBadgeText: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.semiBold,
+    color: colors.primaryMuted,
+  },
+
+  // ── Session Control Buttons ──
+  endTripBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.danger,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.lg,
+  },
+  endTripBtnText: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.bold,
+    color: colors.white,
+  },
+  leaveTripBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  leaveTripBtnText: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.bold,
+    color: colors.danger,
+  },
+
+  // ── Turn-by-Turn Guidance Banner ──
+  tbtBanner: {
+    position: 'absolute',
+    top: 90,
+    left: spacing.lg,
+    right: spacing.lg,
+    backgroundColor: '#1E1B4B',
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    elevation: 10,
+    zIndex: 60,
+  },
+  tbtIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  tbtTextContainer: {
+    flex: 1,
+  },
+  tbtDistance: {
+    fontSize: fontSize.lg,
+    fontFamily: fonts.black,
+    color: colors.white,
+  },
+  tbtInstruction: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.medium,
+    color: colors.primaryMuted,
+    marginTop: 2,
+  },
+
+  // ── Floating Controls (Speedometer & SOS) ──
+  floatingControls: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: 300,
+    alignItems: 'center',
+    gap: spacing.md,
+    zIndex: 40,
+  },
+  speedBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderWidth: 2,
+    borderColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+  },
+  speedValue: {
+    fontSize: fontSize.xl,
+    fontFamily: fonts.black,
+    color: colors.white,
+    lineHeight: 22,
+  },
+  speedUnit: {
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    color: colors.primaryMuted,
+  },
+  sosFloatingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.danger,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.full,
+    elevation: 8,
+    shadowColor: colors.danger,
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+  },
+  sosFloatingBtnActive: {
+    backgroundColor: '#991B1B',
+    borderWidth: 2,
+    borderColor: colors.white,
+  },
+  sosFloatingText: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.black,
+    color: colors.white,
+    letterSpacing: 1,
+  },
+
+  // ── SOS Marker Styling ──
+  sosMarkerDot: {
+    backgroundColor: colors.danger,
+    borderColor: colors.white,
+    borderWidth: 3,
+  },
+  sosMarkerLabel: {
+    backgroundColor: colors.danger,
+  },
+
+  // ── Convoy Radar HUD ──
+  radarHudContainer: {
+    backgroundColor: colors.cardElevated,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  radarHudTitle: {
+    fontSize: fontSize.xs - 1,
+    fontFamily: fonts.bold,
+    color: colors.primaryMuted,
+    letterSpacing: 1,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  radarHudRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  radarMemberBox: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+  },
+  radarMemberLabel: {
+    fontSize: fontSize.xs - 1,
+    fontFamily: fonts.semiBold,
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  radarMemberDist: {
+    fontSize: 10,
+    fontFamily: fonts.medium,
+    color: colors.textMuted,
+  },
+  radarSelfBox: {
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+  },
+  radarSelfText: {
+    fontSize: 10,
+    fontFamily: fonts.black,
+    color: colors.primary,
+    marginTop: 2,
+  },
+
+  // ── Navigation Mode Toggle Button ──
+  navToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+    elevation: 4,
+  },
+  navToggleBtnActive: {
+    backgroundColor: colors.cardElevated,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  navToggleBtnText: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.bold,
+    color: colors.white,
+    letterSpacing: 0.5,
+  },
 });

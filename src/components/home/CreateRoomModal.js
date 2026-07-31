@@ -265,6 +265,7 @@ export function CreateRoomModal({
   visible, onClose, origin, destination, vehicleCount,
   onDecrement, onIncrement, routeCoords, routeSummary,
   onCreateRoom, loading, isReady,
+  vehicleType, onVehicleTypeChange, useTolls, onUseTollsChange,
 }) {
   const [mapPickerTarget, setMapPickerTarget] = useState(null); // 'origin' | 'dest' | null
 
@@ -371,6 +372,74 @@ export function CreateRoomModal({
                 loading={loading}
               />
 
+              {/* VEHICLE TYPE SELECTOR */}
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Jenis Kendaraan</Text>
+                <View style={styles.pillRow}>
+                  <TouchableOpacity
+                    style={[styles.pillBtn, vehicleType === 'motorcycle' && styles.pillBtnActive]}
+                    onPress={() => onVehicleTypeChange('motorcycle')}
+                    activeOpacity={0.7}
+                    disabled={loading}
+                  >
+                    <MaterialCommunityIcons
+                      name="motorbike"
+                      size={18}
+                      color={vehicleType === 'motorcycle' ? colors.white : colors.textMuted}
+                    />
+                    <Text style={[styles.pillBtnText, vehicleType === 'motorcycle' && styles.pillBtnTextActive]}>Motor</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.pillBtn, vehicleType === 'car' && styles.pillBtnActive]}
+                    onPress={() => onVehicleTypeChange('car')}
+                    activeOpacity={0.7}
+                    disabled={loading}
+                  >
+                    <MaterialCommunityIcons
+                      name="car"
+                      size={18}
+                      color={vehicleType === 'car' ? colors.white : colors.textMuted}
+                    />
+                    <Text style={[styles.pillBtnText, vehicleType === 'car' && styles.pillBtnTextActive]}>Mobil</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* TOLL OPTION (only for car) */}
+              {vehicleType === 'car' && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Opsi Tol</Text>
+                  <View style={styles.pillRow}>
+                    <TouchableOpacity
+                      style={[styles.pillBtn, useTolls === true && styles.pillBtnActiveToll]}
+                      onPress={() => onUseTollsChange(true)}
+                      activeOpacity={0.7}
+                      disabled={loading}
+                    >
+                      <MaterialCommunityIcons
+                        name="highway"
+                        size={16}
+                        color={useTolls === true ? colors.white : colors.textMuted}
+                      />
+                      <Text style={[styles.pillBtnText, useTolls === true && styles.pillBtnTextActive]}>Lewat Tol</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.pillBtn, useTolls === false && styles.pillBtnActiveNoToll]}
+                      onPress={() => onUseTollsChange(false)}
+                      activeOpacity={0.7}
+                      disabled={loading}
+                    >
+                      <MaterialCommunityIcons
+                        name="road-variant"
+                        size={16}
+                        color={useTolls === false ? colors.white : colors.textMuted}
+                      />
+                      <Text style={[styles.pillBtnText, useTolls === false && styles.pillBtnTextActive]}>Tanpa Tol</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
               {/* VEHICLE STEPPER */}
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Jumlah Kendaraan</Text>
@@ -384,7 +453,7 @@ export function CreateRoomModal({
                   </TouchableOpacity>
                   <View style={styles.stepperCenter}>
                     <Text style={styles.stepperValue}>{vehicleCount}</Text>
-                    <Text style={styles.stepperLabel}>kendaraan</Text>
+                    <Text style={styles.stepperLabel}>{vehicleType === 'motorcycle' ? 'motor' : 'mobil'}</Text>
                   </View>
                   <TouchableOpacity
                     style={[styles.stepperBtn, vehicleCount >= 99 && styles.stepperBtnOff]}
@@ -607,6 +676,44 @@ const styles = StyleSheet.create({
   stepperCenter: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
   stepperValue: { fontSize: fontSize.xxl, fontFamily: fonts.bold, color: colors.textPrimary },
   stepperLabel: { fontSize: fontSize.xs, fontFamily: fonts.regular, color: colors.textMuted, marginTop: 1 },
+
+  // Pill selectors (vehicle type, toll option)
+  pillRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  pillBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.inputBg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pillBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pillBtnActiveToll: {
+    backgroundColor: '#0EA5E9',
+    borderColor: '#0EA5E9',
+  },
+  pillBtnActiveNoToll: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+  },
+  pillBtnText: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.semiBold,
+    color: colors.textMuted,
+  },
+  pillBtnTextActive: {
+    color: colors.white,
+  },
 
   // Footer
   sheetFooter: {

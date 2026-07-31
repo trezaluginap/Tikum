@@ -19,6 +19,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ActiveTripsCard } from '../components/home/ActiveTripsCard';
 import { CreateRoomModal } from '../components/home/CreateRoomModal';
 import { HomeHeader } from '../components/home/HomeHeader';
+import HistoryModal from '../components/home/HistoryModal';
 import { JoinRoomModal } from '../components/home/JoinRoomModal';
 import { TipsCard } from '../components/home/TipsCard';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
@@ -41,19 +42,26 @@ export default function HomeScreen() {
   // ── Modals ──
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
   // ── Loading (split) ──
   const [createLoading, setCreateLoading] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
 
-  // ── Vehicle ──
+  // ── Vehicle & Routing ──
   const [vehicleCount, setVehicleCount] = useState(1);
+  const [vehicleType, setVehicleType] = useState('motorcycle'); // 'motorcycle' | 'car'
+  const [useTolls, setUseTolls] = useState(true);
+
+  const routingMode = vehicleType === 'motorcycle'
+    ? 'motorcycle'
+    : (useTolls ? 'auto_toll' : 'auto_no_toll');
 
   // ── Hooks ──
   const origin = useLocationSearch();
   const destination = useLocationSearch();
-  const { routeCoords, routeSummary } = useOsrmRoute(origin.coords, destination.coords);
+  const { routeCoords, routeSummary } = useOsrmRoute(origin.coords, destination.coords, routingMode);
   const { activeTrips, loading: tripsLoading } = useActiveTrips();
 
   // ── Animations ──
@@ -82,6 +90,8 @@ export default function HomeScreen() {
         origin.clearAll();
         destination.clearAll();
         setVehicleCount(1);
+        setVehicleType('motorcycle');
+        setUseTolls(true);
         setPinInput('');
       };
     }, [])
@@ -108,6 +118,13 @@ export default function HomeScreen() {
       if (!data?.length) throw new Error('Room dibuat tapi data tidak terambil');
 
       const createdRoom = data[0];
+
+      // Encode routing mode into vehicle_count: modeCode * 1000 + count
+      let modeCode = 2; // default auto_toll
+      if (vehicleType === 'motorcycle') modeCode = 1;
+      else if (!useTolls) modeCode = 3;
+      const encodedVehicleCount = modeCode * 1000 + vehicleCount;
+
       const { error: tripError } = await supabase
         .from('room_trips')
         .upsert([{
@@ -116,7 +133,7 @@ export default function HomeScreen() {
           origin_longitude: origin.coords.longitude,
           destination_latitude: destination.coords.latitude,
           destination_longitude: destination.coords.longitude,
-          vehicle_count: vehicleCount,
+          vehicle_count: encodedVehicleCount,
         }], { onConflict: 'room_id' });
 
       if (tripError) console.warn('Trip setup error:', tripError.message);
@@ -131,7 +148,7 @@ export default function HomeScreen() {
         destination: destination.coords,
         originName: origin.name,
         destinationName: destination.name,
-        vehicleCount,
+        vehicleCount: encodedVehicleCount,
         preloadedRoute: routeCoords,
         preloadedSummary: routeSummary,
       });
@@ -140,6 +157,8 @@ export default function HomeScreen() {
       origin.clearAll();
       destination.clearAll();
       setVehicleCount(1);
+      setVehicleType('motorcycle');
+      setUseTolls(true);
     } catch (error) {
       Alert.alert('Gagal Membuat Room', error.message);
     } finally {
@@ -196,8 +215,11 @@ export default function HomeScreen() {
 
   // ── Handler: Resume trip ──
   const handleTripResume = (trip) => {
-    const td = trip.room_trips?.[0];
-    if (!td) return;
+    const td = Array.isArray(trip.room_trips) ? trip.room_trips[0] : trip.room_trips;
+    if (!td) {
+      Alert.alert('Data Tidak Lengkap', 'Detail rute perjalanan tidak ditemukan. Coba buat room baru.');
+      return;
+    }
     navigation.navigate('Map', {
       roomId: trip.id,
       pin: trip.room_pin,
@@ -229,6 +251,10 @@ export default function HomeScreen() {
         onCreateRoom={handleCreateRoom}
         loading={createLoading}
         isReady={isCreateReady}
+        vehicleType={vehicleType}
+        onVehicleTypeChange={setVehicleType}
+        useTolls={useTolls}
+        onUseTollsChange={setUseTolls}
       />
       <JoinRoomModal
         visible={joinModalVisible}
@@ -238,11 +264,16 @@ export default function HomeScreen() {
         onJoin={handleJoinRoom}
         loading={joinLoading}
       />
+      <HistoryModal
+        visible={historyModalVisible}
+        onClose={() => setHistoryModalVisible(false)}
+      />
 
       {/* ── HEADER ── */}
       <HomeHeader
         displayName={displayName}
         profileInitial={profileInitial}
+        profilePhotoUrl={user?.user_metadata?.profile_photo_url || null}
         onProfilePress={() => navigation.navigate('Profile')}
       />
 
@@ -296,7 +327,7 @@ export default function HomeScreen() {
             activeTrips={activeTrips}
             loading={tripsLoading}
             onTripResume={handleTripResume}
-            onHistoryPress={() => {}}
+            onHistoryPress={() => setHistoryModalVisible(true)}
           />
         </Animated.View>
 

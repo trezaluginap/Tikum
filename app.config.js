@@ -12,6 +12,13 @@ export default ({ config }) => ({
   newArchEnabled: true,
   ios: {
     supportsTablet: true,
+    infoPlist: {
+      NSLocationAlwaysAndWhenInUseUsageDescription:
+        'TiKum memerlukan akses lokasi di background agar posisi kamu tetap terlihat oleh rombongan konvoi, bahkan saat aplikasi diminimalkan.',
+      NSLocationWhenInUseUsageDescription:
+        'TiKum memerlukan akses lokasi untuk menampilkan posisi kamu di peta konvoi.',
+      UIBackgroundModes: ['location'],
+    },
   },
   android: {
     adaptiveIcon: {
@@ -22,6 +29,13 @@ export default ({ config }) => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
+    permissions: [
+      'ACCESS_FINE_LOCATION',
+      'ACCESS_COARSE_LOCATION',
+      'ACCESS_BACKGROUND_LOCATION',
+      'FOREGROUND_SERVICE',
+      'FOREGROUND_SERVICE_LOCATION',
+    ],
   },
   web: {
     output: 'static',
@@ -40,6 +54,22 @@ export default ({ config }) => ({
         },
       },
     ],
+    [
+      'expo-location',
+      {
+        locationAlwaysAndWhenInUsePermission:
+          'TiKum memerlukan akses lokasi di background agar posisi kamu tetap terlihat oleh rombongan konvoi.',
+        locationAlwaysPermission:
+          'TiKum memerlukan akses lokasi di background agar posisi kamu tetap terlihat oleh rombongan konvoi.',
+        locationWhenInUsePermission:
+          'TiKum memerlukan akses lokasi untuk menampilkan posisi kamu di peta konvoi.',
+        isAndroidBackgroundLocationEnabled: true,
+        isAndroidForegroundServiceEnabled: true,
+      },
+    ],
+    'expo-font',
+    'expo-router',
+    'expo-web-browser',
   ],
   experiments: {
     typedRoutes: true,

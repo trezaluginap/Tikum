@@ -1,8 +1,8 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
 
-export function HomeHeader({ displayName, profileInitial, onProfilePress }) {
+export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onProfilePress }) {
   return (
     <View style={styles.header}>
       <View style={styles.left}>
@@ -10,7 +10,11 @@ export function HomeHeader({ displayName, profileInitial, onProfilePress }) {
         <Text style={styles.userName}>{displayName}</Text>
       </View>
       <TouchableOpacity style={styles.profileButton} onPress={onProfilePress} activeOpacity={0.8}>
-        <Text style={styles.profileInitial}>{profileInitial}</Text>
+        {profilePhotoUrl ? (
+          <Image source={{ uri: profilePhotoUrl }} style={styles.profileImage} />
+        ) : (
+          <Text style={styles.profileInitial}>{profileInitial}</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -46,10 +50,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
+    overflow: 'hidden',
   },
   profileInitial: {
     color: colors.white,
     fontFamily: fonts.bold,
     fontSize: fontSize.lg,
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
 });

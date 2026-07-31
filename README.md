@@ -1,26 +1,35 @@
-Ini *template* `README.md` yang sudah disusun dengan struktur profesional. Isinya memuat pengenalan proyek, panduan instalasi lokal untuk teman lu, dan SOP Git Flow yang mengikat.
-
-Lu tinggal *copy* seluruh teks di dalam kotak kode di bawah ini, lalu *paste* ke file `README.md` di proyek lu. Ubah bagian `[username-lu]` dengan *username* GitHub lu yang asli.
-
-```markdown
 # TiKum (Titik Kumpul) 📍
 
-Aplikasi pelacakan lokasi *real-time* ringan untuk manajemen rombongan konvoi, *touring*, atau *road trip*. Proyek ini dibangun untuk meminimalisir anggota terpisah menggunakan komunikasi kordinat instan antar pengguna.
+Aplikasi pelacakan lokasi *real-time* berbasis mobile (Android & iOS) yang dirancang khusus untuk mempermudah koordinasi rombongan konvoi, *touring*, atau *road trip*. Proyek ini meminimalisir risiko anggota terpisah menggunakan komunikasi koordinat instan, visualisasi navigasi 3D, urutan radar rombongan, dan sinyal darurat (SOS) terpusat.
 
 ---
 
-## 🚀 Tech Stack
-* **Frontend:** React Native (Expo CLI)
-* **Backend & Database:** Supabase (PostgreSQL)
-* **Real-time Engine:** Supabase Broadcast (WebSockets)
+## 🎯 Goals & Tujuan Aplikasi
+* **Koordinasi Instan:** Menghubungkan rombongan convoy melalui PIN kamar 6-digit tanpa proses konfigurasi rumit.
+* **Safety First:** Fitur SOS instan jika ada kendala di perjalanan (ban bocor, mesin mati, dll) yang langsung broadcast alarm ke semua anggota.
+* **Radar Rombongan:** Mengetahui posisi relatif convoy secara langsung (siapa di depan, siapa di belakang kita, dan berapa jaraknya) untuk menjaga barisan berkendara tetap rapat.
+* **Navigasi Terarah:** Mode mengemudi 3D (follow-heading) dilengkapi Turn-by-Turn guidance agar tidak tersesat meskipun berkendara dalam rombongan besar.
 
 ---
 
-## 🛠️ Instalasi & Setup Lokal
+## 🚀 Fitur MVP & Phase 1 (Sudah Terimplementasi)
+1. **Sistem Auth & Profil:** Registrasi callsign (nama tampil) + spesifikasi kendaraan, login, dan integrasi update foto profil ke cloud storage.
+2. **Room Management:** Membuat convoy room baru dengan auto-generated 6-digit PIN, serta bergabung ke room aktif teman.
+3. **Peta & Rute Real-time:** preview rute konvoi (asal & tujuan) via Valhalla routing engine (motor, mobil tol, mobil non-tol).
+4. **Navigasi Mode 3D:** Kamera mengemudi dinamis (pitch 55°), mengikuti GPS secara real-time, dan memutar peta otomatis mengikuti sensor arah hadap (`heading`).
+5. **Turn-by-Turn (TBT) Guidance:** Banner penunjuk arah manuver jalan di atas peta berdasarkan rute aktif.
+6. **Convoy Radar HUD:** Mendeteksi posisi relatif dan jarak antar anggota rombongan di jalur konvoi (tahu siapa di depan/belakangmu).
+7. **Sinyal SOS Darurat:** Tombol SOS sekali klik yang mengirim alert alarm darurat secara instan via WebSockets ke HP semua anggota convoy dengan visual marker berkedip ⚠️.
+8. **Background Location Service:** Lokasi tetap ter-update ke server meskipun aplikasi di-minimize atau HP terkunci (menggunakan `expo-task-manager`).
+9. **Premium UI/UX:** Tema warna gelap (Techy Minimalist Slate/Indigo), notifikasi dialog kustom (glassmorphic style), dan feedback haptic/getaran dinamis.
 
-1. **Clone repositori ini:**
+---
+
+## 🛠️ Instalasi & Setup Lokal (Frontend)
+
+1. **Clone repositori:**
    ```bash
-   git clone [https://github.com/](https://github.com/)[username-lu]/TiKum-App.git
+   git clone https://github.com/[username-lu]/TiKum-App.git
    cd TiKum-App
    ```
 
@@ -30,62 +39,119 @@ Aplikasi pelacakan lokasi *real-time* ringan untuk manajemen rombongan konvoi, *
    ```
 
 3. **Setup Environment Variables:**
-   Minta *keys* Supabase kepada *Project Owner*. Buat file bernama `.env` di *root folder* proyek (sejajar dengan `package.json`) dan isi dengan format berikut:
+   Buat file `.env` di root folder proyek (sejajar dengan `package.json`) dan isi dengan kunci Supabase proyek kamu:
    ```env
    EXPO_PUBLIC_SUPABASE_URL=https://[PROJECT-ID].supabase.co
    EXPO_PUBLIC_SUPABASE_ANON_KEY=[ANON-KEY-PANJANG]
    ```
-   > **⚠️ PERINGATAN:** Jangan pernah melakukan *commit* file `.env` ke GitHub. Pastikan `.env` sudah terdaftar di dalam file `.gitignore`.
+   > **⚠️ PERINGATAN:** File `.env` sudah masuk di `.gitignore` dan jangan pernah dicommit ke GitHub.
 
-4. **Jalankan aplikasi:**
+4. **Rebuild Native Config (Wajib karena ada background service):**
    ```bash
-   npx expo start
+   npx expo prebuild
+   ```
+
+5. **Jalankan aplikasi:**
+   ```bash
+   npx expo start -c
    ```
 
 ---
 
-## 📜 SOP Kolaborasi & Git Flow (WAJIB BACA)
+## 🗄️ Spesifikasi Database & Setup Backend (Supabase)
+*Panduan untuk Backend Developer (Collaborator) untuk inisialisasi schema database PostgreSQL di Supabase.*
 
-Agar kode tidak mengalami *Merge Conflict* parah dan proyek tetap terstruktur layaknya standar industri, seluruh *developer* wajib mengikuti protokol di bawah ini.
+### 1. Struktur Tabel SQL
 
-### ⛔ Aturan Mutlak
-**DILARANG KERAS MELAKUKAN `git push origin main`.** Cabang (`branch`) `main` adalah ruang suci yang hanya berisi kode stabil dan siap rilis. Seluruh proses integrasi fitur sehari-hari dilakukan di cabang **`develop`**.
+Buka **Supabase SQL Editor** dan jalankan query berikut untuk membuat struktur database TiKum:
 
-### 🔄 Alur Kerja Harian
+```sql
+-- TABEL 1: PROFILES (Koneksi ke Auth Users)
+CREATE TABLE public.profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  display_name TEXT NOT NULL, -- Format penyimpanan: "Nama Tampil||UrlFoto"
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
-**1. Sinkronisasi Kode Terbaru**
-Sebelum mulai *coding*, selalu pastikan posisi lu berada di cabang `develop` dan tarik pembaruan terbaru dari *server*:
-```bash
-git checkout develop
-git pull origin develop
+-- TABEL 2: ROOMS (Sesi Konvoi)
+CREATE TABLE public.rooms (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  room_pin VARCHAR(6) NOT NULL UNIQUE,
+  host_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  is_active BOOLEAN DEFAULT true NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- TABEL 3: ROOM_TRIPS (Detail rute asal, tujuan, dan jenis kendaraan)
+CREATE TABLE public.room_trips (
+  room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE PRIMARY KEY,
+  origin_latitude NUMERIC NOT NULL,
+  origin_longitude NUMERIC NOT NULL,
+  destination_latitude NUMERIC NOT NULL,
+  destination_longitude NUMERIC NOT NULL,
+  vehicle_count INTEGER NOT NULL, -- Format: modeCode * 1000 + jumlah_kendaraan
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- TABEL 4: LOCATIONS (Pelacakan koordinat real-time anggota rombongan)
+CREATE TABLE public.locations (
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE NOT NULL,
+  latitude NUMERIC NOT NULL,
+  longitude NUMERIC NOT NULL,
+  heading NUMERIC DEFAULT 0 NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 ```
 
-**2. Buat Cabang Baru (Branching)**
-Jangan *coding* langsung di `develop`. Buat cabang khusus untuk tiket/fitur yang sedang lu kerjakan di Trello. Gunakan format penamaan: `feat/[nama-fitur]`, `fix/[nama-bug]`, atau `ui/[nama-layar]`.
-```bash
-git checkout -b feat/guest-registration
-```
+### 2. Setup Supabase Storage (Bucket Avatars)
+Aplikasi TiKum menyimpan avatar profil di storage. Pastikan untuk membuat **Storage Bucket** kustom dengan ketentuan:
+* **Nama Bucket:** `avatars`
+* **Visibility:** Public (Centang opsi Public Bucket)
 
-**3. Ngoding & Simpan (Commit)**
-Eksekusi kode lu. Setelah fitur berfungsi, simpan perubahan secara lokal. Pesan *commit* harus jelas mendeskripsikan apa yang lu buat.
-```bash
-git add .
-git commit -m "feat: Selesai membuat UI input form registrasi"
-```
+Jalankan script policy SQL ini untuk mengizinkan otorisasi upload/update:
+```sql
+-- SELECT: Publik bisa melihat semua foto profil di peta
+CREATE POLICY "Anyone can view avatars"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'avatars');
 
-**4. Dorong ke GitHub (Push)**
-Dorong cabang fitur tersebut ke *server* GitHub (BUKAN ke `main` atau `develop`).
-```bash
-git push origin feat/guest-registration
-```
+-- INSERT: User terautentikasi bisa upload foto profil
+CREATE POLICY "Authenticated users can upload avatars"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'avatars');
 
-**5. Gabungkan Kode (Pull Request / PR)**
-* Buka repositori TiKum di browser (GitHub).
-* Klik tombol hijau **"Compare & pull request"**.
-* Pastikan *base branch* diarahkan ke **`develop`** (target penggabungan).
-* Beri tahu *partner* bahwa PR sudah siap direviu.
-* **Reviewer:** Buka PR tersebut, cek kode. Jika tidak ada potensi *error*, *Reviewer* yang berhak mengklik tombol **Merge Pull Request**. (Jangan *merge* PR buatan sendiri).
+-- UPDATE: User terautentikasi bisa update foto profil miliknya
+CREATE POLICY "Authenticated users can update avatars"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (bucket_id = 'avatars')
+WITH CHECK (bucket_id = 'avatars');
+
+-- DELETE: User terautentikasi bisa menghapus foto profil miliknya
+CREATE POLICY "Authenticated users can delete avatars"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (bucket_id = 'avatars');
+```
 
 ---
-*Catatan: SOP ini dibuat agar kita fokus menyelesaikan fitur (menyelesaikan masalah), bukan menghabiskan waktu berjam-jam untuk memperbaiki masalah Git (menciptakan masalah baru).*
-```
+
+## 📜 SOP Git Flow & Kolaborasi
+
+Untuk menjaga codebase tetap stabil, seluruh developer wajib mengikuti protokol Git berikut:
+
+* **Branch Utama (`main`):** Cabang rilis produksi. Dilarang keras melakukan push langsung ke `main`.
+* **Branch Pengembangan (`develop`):** Cabang integrasi fitur harian.
+* **Feature Branching:** Sebelum ngoding fitur baru, selalu buat branch baru dari `develop` dengan format: `feat/[nama-fitur]`, `fix/[nama-bug]`, atau `ui/[nama-layar]`.
+  ```bash
+  git checkout develop
+  git pull origin develop
+  git checkout -b feat/sos-broadcast
+  ```
+* **Pull Request (PR):** Ketika fitur selesai, push branch kamu ke origin dan ajukan Pull Request ke branch **`develop`** untuk di-review oleh rekan tim.
+
+---
+*TiKum App — Selesai Masalah di Jalan, Fokus Koordinasi Nyaman.*

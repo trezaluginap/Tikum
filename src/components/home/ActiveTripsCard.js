@@ -4,8 +4,13 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
 
 function TripItem({ trip, onResume }) {
-  const tripData = trip.room_trips?.[0];
-  const vehicleCount = tripData?.vehicle_count ?? '-';
+  const tripData = Array.isArray(trip.room_trips) ? trip.room_trips[0] : trip.room_trips;
+  const rawVC = tripData?.vehicle_count ?? 0;
+  const modeCode = rawVC >= 1000 ? Math.floor(rawVC / 1000) : 2;
+  const cleanCount = rawVC >= 1000 ? (rawVC % 1000) : rawVC;
+  const isMotor = modeCode === 1;
+  const vehicleLabel = isMotor ? 'motor' : 'mobil';
+  const vehicleEmoji = isMotor ? '🏍️' : '🚗';
 
   return (
     <TouchableOpacity style={styles.tripItem} onPress={() => onResume(trip)} activeOpacity={0.7}>
@@ -14,7 +19,7 @@ function TripItem({ trip, onResume }) {
         <Text style={styles.pinValue}>{trip.room_pin}</Text>
       </View>
       <View style={styles.tripInfo}>
-        <Text style={styles.tripVehicle}>🚗 {vehicleCount} kendaraan</Text>
+        <Text style={styles.tripVehicle}>{vehicleEmoji} {cleanCount || '-'} {vehicleLabel}</Text>
       </View>
       <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
     </TouchableOpacity>

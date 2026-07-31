@@ -1,6 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+    ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+    Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { supabase } from '../../supabase';
@@ -12,14 +15,17 @@ export default function RegisterScreens({ navigation }) {
     // Form Data
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
     const [vehicleName, setVehicleName] = useState('');
     
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [focusedField, setFocusedField] = useState(null);
 
     // Step 1 validation
-    const isStep1Valid = email.includes('@') && password.length >= 6;
+    const isStep1Valid = email.includes('@') && password.length >= 6 && confirmPassword === password;
+    const passwordMismatch = confirmPassword.length > 0 && confirmPassword !== password;
     // Step 2 validation
     const isStep2Valid = displayName.trim().length > 0;
 
@@ -42,7 +48,7 @@ export default function RegisterScreens({ navigation }) {
 
         try {
             const { data, error } = await supabase.auth.signUp({
-                email: email.trim(),
+                email: email.trim().toLowerCase(),
                 password: password,
                 options: {
                     data: {
@@ -53,6 +59,20 @@ export default function RegisterScreens({ navigation }) {
             });
 
             if (error) throw error;
+
+            // Sync public profile immediately
+            if (data?.user) {
+                try {
+                    await supabase.from('profiles').upsert({
+                        id: data.user.id,
+                        display_name: `${displayName}||`,
+                        updated_at: new Date(),
+                    });
+                } catch (profileErr) {
+                    console.warn('Gagal membuat profil publik:', profileErr);
+                }
+            }
+
             Alert.alert('Registrasi Berhasil!', 'Silakan periksa email Anda untuk verifikasi (jika diaktifkan) atau login.');
             navigation.navigate('Login');
         } catch (error) {
@@ -65,7 +85,11 @@ export default function RegisterScreens({ navigation }) {
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar style="light" backgroundColor={colors.background} />
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 
                 {/* Background Glow */}
                 <View style={styles.glowTop} />
@@ -95,8 +119,8 @@ export default function RegisterScreens({ navigation }) {
                         {/* ── STEP 1: Email & Password ── */}
                         {step === 1 && (
                             <View style={styles.stepContainer}>
-                                <View style={styles.inputGroup}>
-                                    <MaterialCommunityIcons name="email-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                <View style={[styles.inputGroup, focusedField === 'email' && styles.inputGroupFocused]}>
+                                    <MaterialCommunityIcons name="email-outline" size={20} color={focusedField === 'email' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                                     <TextInput
                                         style={styles.inputField}
                                         placeholder="Alamat Email"
@@ -105,11 +129,13 @@ export default function RegisterScreens({ navigation }) {
                                         onChangeText={setEmail}
                                         keyboardType="email-address"
                                         autoCapitalize="none"
+                                        onFocus={() => setFocusedField('email')}
+                                        onBlur={() => setFocusedField(null)}
                                     />
                                 </View>
 
-                                <View style={styles.inputGroup}>
-                                    <MaterialCommunityIcons name="lock-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                <View style={[styles.inputGroup, focusedField === 'password' && styles.inputGroupFocused]}>
+                                    <MaterialCommunityIcons name="lock-outline" size={20} color={focusedField === 'password' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                                     <TextInput
                                         style={styles.inputField}
                                         placeholder="Password (Min. 6 Karakter)"
@@ -117,11 +143,43 @@ export default function RegisterScreens({ navigation }) {
                                         value={password}
                                         onChangeText={setPassword}
                                         secureTextEntry={!showPassword}
+                                        onFocus={() => setFocusedField('password')}
+                                        onBlur={() => setFocusedField(null)}
                                     />
                                     <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.togglePassword}>
                                         <MaterialCommunityIcons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textMuted} />
                                     </Pressable>
                                 </View>
+
+                                <View style={[
+                                    styles.inputGroup,
+                                    focusedField === 'confirmPassword' && styles.inputGroupFocused,
+                                    passwordMismatch && styles.inputGroupError,
+                                ]}>
+                                    <MaterialCommunityIcons
+                                        name="lock-check-outline"
+                                        size={20}
+                                        color={passwordMismatch ? colors.danger : (focusedField === 'confirmPassword' ? colors.primary : colors.textMuted)}
+                                        style={styles.inputIcon}
+                                    />
+                                    <TextInput
+                                        style={styles.inputField}
+                                        placeholder="Konfirmasi Password"
+                                        placeholderTextColor={colors.textDisabled}
+                                        value={confirmPassword}
+                                        onChangeText={setConfirmPassword}
+                                        secureTextEntry={!showPassword}
+                                        onFocus={() => setFocusedField('confirmPassword')}
+                                        onBlur={() => setFocusedField(null)}
+                                    />
+                                </View>
+
+                                {passwordMismatch && (
+                                    <View style={styles.errorRow}>
+                                        <MaterialCommunityIcons name="alert-circle-outline" size={14} color={colors.danger} />
+                                        <Text style={styles.errorText}>Password tidak cocok</Text>
+                                    </View>
+                                )}
 
                                 <Pressable
                                     onPress={handleNext}
@@ -137,25 +195,29 @@ export default function RegisterScreens({ navigation }) {
                         {/* ── STEP 2: Identitas ── */}
                         {step === 2 && (
                             <View style={styles.stepContainer}>
-                                <View style={styles.inputGroup}>
-                                    <MaterialCommunityIcons name="account-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                <View style={[styles.inputGroup, focusedField === 'displayName' && styles.inputGroupFocused]}>
+                                    <MaterialCommunityIcons name="account-outline" size={20} color={focusedField === 'displayName' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                                     <TextInput
                                         style={styles.inputField}
                                         placeholder="Callsign (Nama Tampil)"
                                         placeholderTextColor={colors.textDisabled}
                                         value={displayName}
                                         onChangeText={setDisplayName}
+                                        onFocus={() => setFocusedField('displayName')}
+                                        onBlur={() => setFocusedField(null)}
                                     />
                                 </View>
 
-                                <View style={styles.inputGroup}>
-                                    <MaterialCommunityIcons name="car-sports" size={20} color={colors.textMuted} style={styles.inputIcon} />
+                                <View style={[styles.inputGroup, focusedField === 'vehicle' && styles.inputGroupFocused]}>
+                                    <MaterialCommunityIcons name="car-sports" size={20} color={focusedField === 'vehicle' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                                     <TextInput
                                         style={styles.inputField}
                                         placeholder="Unit Kendaraan (Opsional)"
                                         placeholderTextColor={colors.textDisabled}
                                         value={vehicleName}
                                         onChangeText={setVehicleName}
+                                        onFocus={() => setFocusedField('vehicle')}
+                                        onBlur={() => setFocusedField(null)}
                                     />
                                 </View>
 
@@ -188,6 +250,7 @@ export default function RegisterScreens({ navigation }) {
                     )}
                 </View>
             </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -221,6 +284,16 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: colors.border,
         paddingHorizontal: spacing.md, paddingVertical: 4,
         marginBottom: spacing.md,
+    },
+    inputGroupFocused: {
+        borderColor: colors.primary,
+        borderWidth: 1.5,
+        backgroundColor: 'rgba(99,102,241,0.05)',
+    },
+    inputGroupError: {
+        borderColor: colors.danger,
+        borderWidth: 1.5,
+        backgroundColor: 'rgba(239,68,68,0.05)',
     },
     inputIcon: { marginRight: spacing.sm },
     inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.regular, color: colors.textPrimary },

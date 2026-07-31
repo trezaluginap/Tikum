@@ -13,6 +13,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
+// Register background location task at module load time (required by expo-task-manager)
+import './src/services/backgroundLocation';
+
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { navigationRef } from './src/navigation/rootNavigation';
 
