@@ -30,6 +30,7 @@ import { useLocationSearch } from '../hooks/useLocationSearch';
 import { useOsrmRoute } from '../hooks/useOsrmRoute';
 
 import { VIRAL_SPOTS } from '../constants/viralSpots';
+import { useLanguage } from '../contexts/LanguageContext';
 
 // Default region Indonesia
 const INDONESIA_REGION = {
@@ -42,6 +43,7 @@ const INDONESIA_REGION = {
 export default function HomeScreen() {
   const navigation = useNavigation();
   const { user, signOut } = useAuth();
+  const { locale, changeLocale, t } = useLanguage();
 
   // ── Tab Navigation State ──
   const [activeTab, setActiveTab] = useState('radar'); // 'radar' | 'destinasi' | 'stats' | 'settings'
@@ -50,6 +52,7 @@ export default function HomeScreen() {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
   // ── Loading (split) ──
@@ -340,12 +343,12 @@ export default function HomeScreen() {
       visible: true,
       type: 'danger',
       icon: 'logout-variant',
-      title: 'Keluar dari Sesi?',
-      message: 'Apakah kamu yakin ingin keluar dari akun radar TiKum saat ini?',
+      title: t('settings.signOutConfirmTitle'),
+      message: t('settings.signOutConfirmMsg'),
       buttons: [
-        { text: 'BATAL', style: 'secondary' },
+        { text: t('settings.signOutCancel'), style: 'secondary' },
         {
-          text: 'KELUAR',
+          text: t('settings.signOutOk'),
           style: 'danger',
           onPress: async () => {
             try {
@@ -441,7 +444,7 @@ export default function HomeScreen() {
                 rotateEnabled={false}
               />
               <View style={styles.mapOverlay}>
-                <Text style={styles.mapOverlayText}>Radar Indonesia</Text>
+                <Text style={styles.mapOverlayText}>{t('home.radarTitle')}</Text>
               </View>
             </View>
 
@@ -455,8 +458,8 @@ export default function HomeScreen() {
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(99,102,241,0.12)' }]}>
                   <MaterialCommunityIcons name="rocket-launch" size={20} color={colors.primary} />
                 </View>
-                <Text style={styles.actionTitle}>Buat Room</Text>
-                <Text style={styles.actionDesc}>Atur rute convoy</Text>
+                <Text style={styles.actionTitle}>{t('home.buatRoom')}</Text>
+                <Text style={styles.actionDesc}>{t('home.buatRoomDesc')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -467,8 +470,8 @@ export default function HomeScreen() {
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
                   <MaterialCommunityIcons name="account-group" size={20} color={colors.success} />
                 </View>
-                <Text style={styles.actionTitle}>Gabung Room</Text>
-                <Text style={styles.actionDesc}>Masukkan PIN</Text>
+                <Text style={styles.actionTitle}>{t('home.gabungRoom')}</Text>
+                <Text style={styles.actionDesc}>{t('home.gabungRoomDesc')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -494,14 +497,14 @@ export default function HomeScreen() {
           <Animated.View style={[styles.tabContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             <View style={styles.tabHeaderRow}>
               <MaterialCommunityIcons name="compass-outline" size={20} color={colors.primary} />
-              <Text style={styles.tabTitle}>Destinasi & Cuaca</Text>
+              <Text style={styles.tabTitle}>{t('home.destinasiTitle')}</Text>
             </View>
-            <Text style={styles.tabSubtitle}>Pantauan cuaca rute & pilihan tempat riding konvoi viral.</Text>
+            <Text style={styles.tabSubtitle}>{t('home.destinasiSub')}</Text>
 
             {/* Weather HUD Widget */}
             {weatherLoading ? (
               <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Memuat informasi satelit cuaca...</Text>
+                <Text style={styles.loadingText}>{t('home.weatherLoading')}</Text>
               </View>
             ) : weatherData ? (
               <View style={[styles.weatherDashboard, { marginBottom: spacing.lg }]}>
@@ -521,12 +524,12 @@ export default function HomeScreen() {
                   <View style={styles.weatherMetaItem}>
                     <MaterialCommunityIcons name="wind-power" size={16} color={colors.textMuted} />
                     <Text style={styles.weatherMetaVal}>{weatherData.windspeed} km/h</Text>
-                    <Text style={styles.weatherMetaLabel}>Kecepatan Angin</Text>
+                    <Text style={styles.weatherMetaLabel}>{t('home.windSpeed')}</Text>
                   </View>
                   <View style={styles.weatherMetaItem}>
                     <MaterialCommunityIcons name="compass-rose" size={16} color={colors.textMuted} />
                     <Text style={styles.weatherMetaVal}>{weatherData.winddirection}°</Text>
-                    <Text style={styles.weatherMetaLabel}>Arah Angin</Text>
+                    <Text style={styles.weatherMetaLabel}>{t('home.windDir')}</Text>
                   </View>
                 </View>
 
@@ -534,15 +537,15 @@ export default function HomeScreen() {
                   <MaterialCommunityIcons name="shield-check-outline" size={16} color="#10B981" style={{ marginRight: 6 }} />
                   <Text style={styles.adviceText}>
                     {weatherData.weathercode >= 51
-                      ? 'Rute basah terdeteksi. Siapkan jas hujan & jaga jarak pengereman.'
-                      : 'Kondisi udara mendukung. Kondusif untuk berkendara konvoi hari ini.'}
+                      ? t('home.weatherAdviceWet')
+                      : t('home.weatherAdviceDry')}
                   </Text>
                 </View>
               </View>
             ) : null}
 
             {/* Viral Spots Header */}
-            <Text style={styles.sectionHeading}>Rekomendasi Riding Spots</Text>
+            <Text style={styles.sectionHeading}>{t('home.ridingSpotsHeading')}</Text>
 
             {VIRAL_SPOTS.map((spot) => (
               <View key={spot.id} style={styles.spotCard}>
@@ -564,7 +567,7 @@ export default function HomeScreen() {
                   activeOpacity={0.8}
                 >
                   <MaterialCommunityIcons name="map-marker-distance" size={16} color={colors.white} style={{ marginRight: 6 }} />
-                  <Text style={styles.spotActionBtnText}>Buat Rute ke Sini</Text>
+                  <Text style={styles.spotActionBtnText}>{t('home.createRouteToSpot')}</Text>
                 </TouchableOpacity>
               </View>
             ))}
@@ -575,53 +578,53 @@ export default function HomeScreen() {
           <Animated.View style={[styles.tabContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             <View style={styles.tabHeaderRow}>
               <MaterialCommunityIcons name="chart-timeline-variant" size={20} color={colors.primary} />
-              <Text style={styles.tabTitle}>Statistik & Pencapaian</Text>
+              <Text style={styles.tabTitle}>{t('home.statsTitle')}</Text>
             </View>
-            <Text style={styles.tabSubtitle}>Ringkasan aktivitas berkendara rombongan kamu di radar TiKum.</Text>
+            <Text style={styles.tabSubtitle}>{t('home.statsSub')}</Text>
 
             {/* Dashboard Stats */}
             <View style={styles.statsGrid}>
               <View style={styles.statsCardItem}>
                 <Text style={styles.statsVal}>340 km</Text>
-                <Text style={styles.statsLabel}>Total Jarak</Text>
+                <Text style={styles.statsLabel}>{t('home.totalDistance')}</Text>
               </View>
               <View style={styles.statsCardItem}>
                 <Text style={styles.statsVal}>12x</Text>
-                <Text style={styles.statsLabel}>Riding Konvoi</Text>
+                <Text style={styles.statsLabel}>{t('home.ridingCount')}</Text>
               </View>
             </View>
 
             <View style={styles.statsCardSingle}>
               <Text style={styles.statsVal}>2.4 Jam</Text>
-              <Text style={styles.statsLabel}>Rata-rata Durasi Perjalanan</Text>
+              <Text style={styles.statsLabel}>{t('home.avgDuration')}</Text>
             </View>
 
             {/* Badges */}
-            <Text style={styles.sectionHeading}>Lencana Pengendara</Text>
+            <Text style={styles.sectionHeading}>{t('home.badgesHeading')}</Text>
 
             <View style={styles.badgeRow}>
               <View style={styles.badgeItem}>
                 <View style={[styles.badgeIconBg, { backgroundColor: 'rgba(99,102,241,0.15)' }]}>
                   <MaterialCommunityIcons name="shield-crown-outline" size={24} color={colors.primary} />
                 </View>
-                <Text style={styles.badgeName}>Pioneer Lead</Text>
-                <Text style={styles.badgeDesc}>Memimpin konvoi</Text>
+                <Text style={styles.badgeName}>{t('home.badgePioneer')}</Text>
+                <Text style={styles.badgeDesc}>{t('home.badgePioneerDesc')}</Text>
               </View>
 
               <View style={styles.badgeItem}>
                 <View style={[styles.badgeIconBg, { backgroundColor: 'rgba(245,158,11,0.15)' }]}>
                   <MaterialCommunityIcons name="weather-night" size={24} color="#F59E0B" />
                 </View>
-                <Text style={styles.badgeName}>Night Cruiser</Text>
-                <Text style={styles.badgeDesc}>Riding malam hari</Text>
+                <Text style={styles.badgeName}>{t('home.badgeNight')}</Text>
+                <Text style={styles.badgeDesc}>{t('home.badgeNightDesc')}</Text>
               </View>
 
               <View style={styles.badgeItem}>
                 <View style={[styles.badgeIconBg, { backgroundColor: 'rgba(16,185,129,0.15)' }]}>
                   <MaterialCommunityIcons name="heart-pulse" size={24} color="#10B981" />
                 </View>
-                <Text style={styles.badgeName}>Safety Rider</Text>
-                <Text style={styles.badgeDesc}>Bebas sinyal SOS</Text>
+                <Text style={styles.badgeName}>{t('home.badgeSafety')}</Text>
+                <Text style={styles.badgeDesc}>{t('home.badgeSafetyDesc')}</Text>
               </View>
             </View>
           </Animated.View>
@@ -632,9 +635,9 @@ export default function HomeScreen() {
           <Animated.View style={[styles.tabContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             <View style={styles.tabHeaderRow}>
               <MaterialCommunityIcons name="cog-outline" size={20} color={colors.primary} />
-              <Text style={styles.tabTitle}>Pengaturan Aplikasi</Text>
+              <Text style={styles.tabTitle}>{t('settings.title')}</Text>
             </View>
-            <Text style={styles.tabSubtitle}>Kelola preferensi radar, lokasi, dan akun pengguna kamu.</Text>
+            <Text style={styles.tabSubtitle}>{t('settings.subtitle')}</Text>
 
             {/* Account Card */}
             <View style={styles.settingsAccountCard}>
@@ -656,14 +659,14 @@ export default function HomeScreen() {
 
             {/* Settings Options Group */}
             <View style={styles.settingsGroup}>
-              <Text style={styles.settingsGroupTitle}>PREFERENSI RADAR</Text>
+              <Text style={styles.settingsGroupTitle}>{t('settings.prefRadar')}</Text>
 
               <View style={styles.settingItemRow}>
                 <View style={styles.settingItemLeft}>
                   <MaterialCommunityIcons name="bell-ring-outline" size={20} color={colors.primaryMuted} />
                   <View>
-                    <Text style={styles.settingItemTitle}>Notifikasi Konvoi Realtime</Text>
-                    <Text style={styles.settingItemSub}>Terima alert SOS & update room</Text>
+                    <Text style={styles.settingItemTitle}>{t('settings.notifRealtime')}</Text>
+                    <Text style={styles.settingItemSub}>{t('settings.notifSub')}</Text>
                   </View>
                 </View>
                 <TouchableOpacity
@@ -682,8 +685,8 @@ export default function HomeScreen() {
                 <View style={styles.settingItemLeft}>
                   <MaterialCommunityIcons name="map-clock-outline" size={20} color={colors.primaryMuted} />
                   <View>
-                    <Text style={styles.settingItemTitle}>Mode Peta Gelap (Dark Map)</Text>
-                    <Text style={styles.settingItemSub}>Gunakan kontras tinggi malam</Text>
+                    <Text style={styles.settingItemTitle}>{t('settings.darkMap')}</Text>
+                    <Text style={styles.settingItemSub}>{t('settings.darkMapSub')}</Text>
                   </View>
                 </View>
                 <TouchableOpacity
@@ -697,21 +700,42 @@ export default function HomeScreen() {
                   />
                 </TouchableOpacity>
               </View>
+
+              {/* Language Switcher Row */}
+              <TouchableOpacity
+                style={styles.settingItemRow}
+                onPress={() => setLanguageModalVisible(true)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.settingItemLeft}>
+                  <MaterialCommunityIcons name="translate" size={20} color={colors.primaryMuted} />
+                  <View>
+                    <Text style={styles.settingItemTitle}>{t('settings.changeLang')}</Text>
+                    <Text style={styles.settingItemSub}>{t('settings.changeLangSub')}</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.primaryMuted }}>
+                    {locale === 'id' ? 'Indonesia' : locale === 'en' ? 'English' : 'Melayu'}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
+                </View>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.settingsGroup}>
-              <Text style={styles.settingsGroupTitle}>LOKASI & PERFORMA</Text>
+              <Text style={styles.settingsGroupTitle}>{t('settings.locationPerform')}</Text>
 
               <TouchableOpacity
                 style={styles.settingItemRow}
-                onPress={() => showToast('success', 'Performa Peta', 'Cache peta lokal berhasil dibersihkan.')}
+                onPress={() => showToast('success', t('settings.clearCache'), t('settings.cacheToast'))}
                 activeOpacity={0.7}
               >
                 <View style={styles.settingItemLeft}>
                   <MaterialCommunityIcons name="broom" size={20} color={colors.primaryMuted} />
                   <View>
-                    <Text style={styles.settingItemTitle}>Bersihkan Cache Peta</Text>
-                    <Text style={styles.settingItemSub}>Bebaskan memori temporary peta</Text>
+                    <Text style={styles.settingItemTitle}>{t('settings.clearCache')}</Text>
+                    <Text style={styles.settingItemSub}>{t('settings.clearCacheSub')}</Text>
                   </View>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
@@ -725,7 +749,7 @@ export default function HomeScreen() {
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons name="logout-variant" size={18} color={colors.danger} style={{ marginRight: 6 }} />
-              <Text style={styles.signOutBtnText}>Keluar dari Akun</Text>
+              <Text style={styles.signOutBtnText}>{t('settings.signOut')}</Text>
             </TouchableOpacity>
 
             <Text style={styles.appVersionFooter}>TiKum Radar v1.4.0 · Build MVP Phase 1</Text>
@@ -734,6 +758,50 @@ export default function HomeScreen() {
 
         <View style={{ height: 110 }} />
       </ScrollView>
+
+      {/* ══ LANGUAGE SELECTOR DIALOG ══ */}
+      <ConvoyDialog
+        visible={languageModalVisible}
+        type="info"
+        icon="translate"
+        title={t('settings.changeLang')}
+        message="Pilih bahasa yang ingin digunakan / Choose language / Pilih bahasa:"
+        buttons={[
+          {
+            text: 'Bahasa Indonesia 🇮🇩',
+            style: locale === 'id' ? 'primary' : 'secondary',
+            onPress: () => {
+              changeLocale('id');
+              setLanguageModalVisible(false);
+              showToast('success', 'Bahasa Diubah', 'Bahasa aplikasi berhasil diubah ke Bahasa Indonesia.');
+            }
+          },
+          {
+            text: 'English 🇬🇧',
+            style: locale === 'en' ? 'primary' : 'secondary',
+            onPress: () => {
+              changeLocale('en');
+              setLanguageModalVisible(false);
+              showToast('success', 'Language Changed', 'App language successfully changed to English.');
+            }
+          },
+          {
+            text: 'Bahasa Melayu 🇲🇾',
+            style: locale === 'ms' ? 'primary' : 'secondary',
+            onPress: () => {
+              changeLocale('ms');
+              setLanguageModalVisible(false);
+              showToast('success', 'Bahasa Ditukar', 'Bahasa aplikasi berjaya ditukar ke Bahasa Melayu.');
+            }
+          },
+          {
+            text: locale === 'id' ? 'BATAL' : locale === 'ms' ? 'BATAL' : 'CANCEL',
+            style: 'secondary',
+            onPress: () => setLanguageModalVisible(false)
+          }
+        ]}
+        onClose={() => setLanguageModalVisible(false)}
+      />
 
       {/* ══ FLOATING GLASSMORPHIC TAB BAR ══ */}
       <View style={styles.tabBarFloatingContainer}>
@@ -748,7 +816,7 @@ export default function HomeScreen() {
               size={20}
               color={activeTab === 'radar' ? colors.primary : colors.textMuted}
             />
-            <Text style={[styles.tabLabel, activeTab === 'radar' && styles.tabLabelActive]}>Radar</Text>
+            <Text style={[styles.tabLabel, activeTab === 'radar' && styles.tabLabelActive]}>{t('home.radar')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -761,7 +829,7 @@ export default function HomeScreen() {
               size={20}
               color={activeTab === 'destinasi' ? colors.primary : colors.textMuted}
             />
-            <Text style={[styles.tabLabel, activeTab === 'destinasi' && styles.tabLabelActive]}>Destinasi</Text>
+            <Text style={[styles.tabLabel, activeTab === 'destinasi' && styles.tabLabelActive]}>{t('home.destinasi')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -774,7 +842,7 @@ export default function HomeScreen() {
               size={20}
               color={activeTab === 'stats' ? colors.primary : colors.textMuted}
             />
-            <Text style={[styles.tabLabel, activeTab === 'stats' && styles.tabLabelActive]}>Statistik</Text>
+            <Text style={[styles.tabLabel, activeTab === 'stats' && styles.tabLabelActive]}>{t('home.statistik')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -787,7 +855,7 @@ export default function HomeScreen() {
               size={20}
               color={activeTab === 'settings' ? colors.primary : colors.textMuted}
             />
-            <Text style={[styles.tabLabel, activeTab === 'settings' && styles.tabLabelActive]}>Pengaturan</Text>
+            <Text style={[styles.tabLabel, activeTab === 'settings' && styles.tabLabelActive]}>{t('home.pengaturan')}</Text>
           </TouchableOpacity>
         </View>
       </View>

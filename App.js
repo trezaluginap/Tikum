@@ -17,6 +17,7 @@ import { ActivityIndicator, View } from 'react-native';
 import './src/services/backgroundLocation';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
+import { LanguageProvider } from './src/contexts/LanguageContext';
 import { navigationRef } from './src/navigation/rootNavigation';
 
 // Screens
@@ -101,8 +102,10 @@ export default function App() {
   }
 
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </LanguageProvider>
   );
 }
