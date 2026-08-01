@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { ActivityIndicator, Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
 
@@ -27,9 +28,36 @@ function TripItem({ trip, onResume }) {
 }
 
 export function ActiveTripsCard({ activeTrips, loading, onTripResume, onHistoryPress }) {
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.4,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
   return (
     <View style={styles.card}>
-      <Text style={styles.sectionTitle}>Perjalanan Aktif</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.sectionTitle}>Perjalanan Aktif</Text>
+        {activeTrips.length > 0 && (
+          <View style={styles.liveBadge}>
+            <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
+            <Text style={styles.liveText}>LIVE</Text>
+          </View>
+        )}
+      </View>
 
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
@@ -62,15 +90,48 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(99, 102, 241, 0.25)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
   },
   sectionTitle: {
-    fontSize: fontSize.sm,
-    fontFamily: fonts.semiBold,
+    fontSize: fontSize.xs,
+    fontFamily: fonts.bold,
     color: colors.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: spacing.md,
+    letterSpacing: 1.2,
+  },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingVertical: 2,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.full,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.success,
+  },
+  liveText: {
+    fontSize: 9,
+    fontFamily: fonts.black,
+    color: colors.success,
+    letterSpacing: 0.5,
   },
 
   tripItem: {
@@ -82,16 +143,18 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   pinBadge: {
-    backgroundColor: colors.primaryLight + '20',
-    borderRadius: radius.sm,
+    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    borderRadius: radius.md,
     paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm + 2,
+    paddingHorizontal: spacing.sm + 4,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.25)',
   },
   pinLabel: { fontSize: 9, fontFamily: fonts.bold, color: colors.primaryMuted, letterSpacing: 1 },
-  pinValue: { fontSize: fontSize.lg, fontFamily: fonts.extraBold, color: colors.primary },
+  pinValue: { fontSize: fontSize.lg, fontFamily: fonts.black, color: colors.primary },
   tripInfo: { flex: 1 },
-  tripVehicle: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.textSecondary },
+  tripVehicle: { fontSize: fontSize.sm, fontFamily: fonts.semiBold, color: colors.textPrimary },
 
   emptyState: { alignItems: 'center', paddingVertical: spacing.xl },
   emptyIcon: {
@@ -102,9 +165,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
   },
-  emptyText: { fontSize: fontSize.md, fontFamily: fonts.semiBold, color: colors.textSecondary },
-  emptySubText: { fontSize: fontSize.xs, fontFamily: fonts.regular, color: colors.textMuted, marginTop: spacing.xs },
+  emptyText: { fontSize: fontSize.md, fontFamily: fonts.bold, color: colors.textSecondary },
+  emptySubText: { fontSize: fontSize.xs, fontFamily: fonts.medium, color: colors.textMuted, marginTop: spacing.xs },
 
   historyBtn: {
     flexDirection: 'row',

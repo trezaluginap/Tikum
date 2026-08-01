@@ -45,6 +45,37 @@ export const colors = {
 
   // Map
   mapOverlay: 'rgba(15,23,42,0.6)',
+
+  // Glows & Accents
+  primaryGlow: 'rgba(99, 102, 241, 0.35)',
+  successGlow: 'rgba(16, 185, 129, 0.35)',
+  dangerGlow: 'rgba(239, 68, 68, 0.35)',
+  glassBg: 'rgba(30, 41, 59, 0.75)',
+  glassBorder: 'rgba(99, 102, 241, 0.2)',
+};
+
+export const shadows = {
+  glowPrimary: {
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  glowDanger: {
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  glassCard: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
 };
 
 export const spacing = {

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   SafeAreaView,
   ScrollView,
   Share,
@@ -80,6 +81,46 @@ export default function MapScreen({ route, navigation }) {
 
   // ── Routing Mode & In-App Navigation ──
   const [routingMode] = useState(initialRoutingMode); // fixed from room creation
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+
+  // ── Interactive Animations ──
+  const sosPulseAnim = useRef(new Animated.Value(1)).current;
+  const tbtSlideAnim = useRef(new Animated.Value(-100)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(sosPulseAnim, {
+          toValue: 1.08,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sosPulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  useEffect(() => {
+    if (isNavigating) {
+      Animated.spring(tbtSlideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(tbtSlideAnim, {
+        toValue: -100,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isNavigating]);
+
   const [routeLoading, setRouteLoading] = useState(false);
   const [navRouteCoords, setNavRouteCoords] = useState([]); // route from myLocation to origin
   const [navRouteSummary, setNavRouteSummary] = useState(null);
@@ -214,10 +255,13 @@ export default function MapScreen({ route, navigation }) {
           console.error('Error fetching initial locations:', err);
         }
 
-        // 3. Get current position immediately
+        // 3. Get current position immediately with robust fallback chain
         try {
-          const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-          if (initialLoc) {
+          let initialLoc = await Location.getLastKnownPositionAsync();
+          if (!initialLoc) {
+            initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          }
+          if (initialLoc?.coords) {
             const { latitude, longitude, heading } = initialLoc.coords;
             setMyLocation({ latitude, longitude, heading });
 
@@ -227,9 +271,14 @@ export default function MapScreen({ route, navigation }) {
               latitude, longitude, heading: heading || 0,
               updated_at: new Date(),
             });
+          } else if (origin?.latitude && origin?.longitude) {
+            setMyLocation({ latitude: origin.latitude, longitude: origin.longitude, heading: 0 });
           }
         } catch (err) {
-          console.error('Initial location fetch/upsert error:', err);
+          console.warn('Initial location fallback engaged:', err?.message);
+          if (origin?.latitude && origin?.longitude) {
+            setMyLocation({ latitude: origin.latitude, longitude: origin.longitude, heading: 0 });
+          }
         }
 
         // 4. Watch position
@@ -715,8 +764,38 @@ export default function MapScreen({ route, navigation }) {
     const targetCoord = routeCoords[upcoming.begin_shape_index] || destination;
     const distKm = targetCoord ? getDistance(myLocation.latitude, myLocation.longitude, targetCoord.latitude, targetCoord.longitude) : '0.0';
 
+    const translateInstruction = (text) => {
+      if (!text) return 'Tetap ikuti rute konvoi';
+      let str = text;
+      str = str.replace(/Drive (west|east|north|south|north-west|north-east|south-west|south-east) on/gi, (match, dir) => {
+        const dirMap = {
+          west: 'ke barat di', east: 'ke timur di', north: 'ke utara di', south: 'ke selatan di',
+          'north-west': 'ke barat laut di', 'north-east': 'ke timur laut di',
+          'south-west': 'ke barat daya di', 'south-east': 'ke tenggara di',
+        };
+        return `Lurus terus ${dirMap[dir.toLowerCase()] || ''}`;
+      });
+      str = str.replace(/Drive (west|east|north|south|north-west|north-east|south-west|south-east)/gi, (match, dir) => {
+        const dirMap = {
+          west: 'ke barat', east: 'ke timur', north: 'ke utara', south: 'ke selatan',
+          'north-west': 'ke barat laut', 'north-east': 'ke timur laut',
+          'south-west': 'ke barat daya', 'south-east': 'ke tenggara',
+        };
+        return `Jalan ${dirMap[dir.toLowerCase()] || ''}`;
+      });
+      str = str.replace(/Turn right/gi, 'Belok kanan');
+      str = str.replace(/Turn left/gi, 'Belok kiri');
+      str = str.replace(/Make a U-turn/gi, 'Putar balik');
+      str = str.replace(/Merge/gi, 'Gabung rute');
+      str = str.replace(/Keep right/gi, 'Ambil jalur kanan');
+      str = str.replace(/Keep left/gi, 'Ambil jalur kiri');
+      str = str.replace(/Take the ramp/gi, 'Masuk ke jalan layang');
+      str = str.replace(/Destination/gi, 'Titik tujuan');
+      return str;
+    };
+
     return {
-      instruction: upcoming.instruction || 'Tetap ikuti rute',
+      instruction: translateInstruction(upcoming.instruction),
       distanceKm: distKm,
       type: upcoming.type || 0,
     };
@@ -889,7 +968,7 @@ export default function MapScreen({ route, navigation }) {
 
       {/* ══ TURN-BY-TURN GUIDANCE BANNER (In Navigation Mode) ══ */}
       {isNavigating && nextManeuver && (
-        <View style={styles.tbtBanner}>
+        <Animated.View style={[styles.tbtBanner, { transform: [{ translateY: tbtSlideAnim }] }]}>
           <View style={styles.tbtIconContainer}>
             <MaterialCommunityIcons
               name={getManeuverIcon(nextManeuver.type)}
@@ -907,7 +986,7 @@ export default function MapScreen({ route, navigation }) {
               {nextManeuver.instruction}
             </Text>
           </View>
-        </View>
+        </Animated.View>
       )}
 
       {/* ══ OFFLINE BANNER ══ */}
@@ -970,14 +1049,16 @@ export default function MapScreen({ route, navigation }) {
         )}
 
         {/* SOS Emergency Button */}
-        <TouchableOpacity
-          style={[styles.sosFloatingBtn, sosActive && styles.sosFloatingBtnActive]}
-          onPress={handleToggleSOS}
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="alert-decagram" size={26} color={colors.white} />
-          <Text style={styles.sosFloatingText}>{sosActive ? 'SOS AKTIF' : 'SOS'}</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: sosPulseAnim }] }}>
+          <TouchableOpacity
+            style={[styles.sosFloatingBtn, sosActive && styles.sosFloatingBtnActive]}
+            onPress={handleToggleSOS}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="alert-decagram" size={26} color={colors.white} />
+            <Text style={styles.sosFloatingText}>{sosActive ? 'SOS AKTIF' : 'SOS'}</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       {/* ══ ROUTING MODE BADGE ══ */}
@@ -1364,13 +1445,60 @@ const styles = StyleSheet.create({
 
   // ── Error ──
   errorBanner: {
-    position: 'absolute', top: 100, left: spacing.xl, right: spacing.xl,
+    position: 'absolute', top: 105, left: spacing.xl, right: spacing.xl,
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     backgroundColor: colors.dangerLight, borderRadius: radius.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.md,
     zIndex: 50,
   },
   errorText: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.danger, flex: 1 },
+
+  // ── Turn-by-Turn Guidance Banner ──
+  tbtBanner: {
+    position: 'absolute',
+    top: 105,
+    left: spacing.lg,
+    right: spacing.lg,
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    borderRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.4)',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 35,
+  },
+  tbtIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.lg,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tbtTextContainer: {
+    flex: 1,
+  },
+  tbtDistance: {
+    fontSize: fontSize.lg,
+    fontFamily: fonts.black,
+    color: colors.primary,
+    letterSpacing: -0.5,
+  },
+  tbtInstruction: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.semiBold,
+    color: colors.textPrimary,
+    marginTop: 2,
+    lineHeight: 18,
+  },
 
   // ── Offline Banner ──
   offlineBanner: {
@@ -1542,13 +1670,17 @@ const styles = StyleSheet.create({
     top: 90,
     left: spacing.lg,
     right: spacing.lg,
-    backgroundColor: '#1E1B4B',
+    backgroundColor: 'rgba(30, 27, 75, 0.94)',
     borderRadius: radius.lg,
     padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: colors.primary,
+    borderColor: 'rgba(99, 102, 241, 0.5)',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 10,
     zIndex: 60,
   },
@@ -1560,20 +1692,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
   },
   tbtTextContainer: {
     flex: 1,
   },
   tbtDistance: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontFamily: fonts.black,
     color: colors.white,
+    letterSpacing: -0.5,
   },
   tbtInstruction: {
     fontSize: fontSize.sm,
     fontFamily: fonts.medium,
     color: colors.primaryMuted,
     marginTop: 2,
+    lineHeight: 18,
   },
 
   // ── Floating Controls (Speedometer & SOS) ──
@@ -1591,9 +1730,13 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     backgroundColor: 'rgba(15, 23, 42, 0.92)',
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: 'rgba(99, 102, 241, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     elevation: 6,
   },
   speedValue: {
@@ -1610,15 +1753,18 @@ const styles = StyleSheet.create({
   sosFloatingBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: colors.danger,
     paddingVertical: spacing.sm + 2,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.md + 4,
     borderRadius: radius.full,
     elevation: 8,
     shadowColor: colors.danger,
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   sosFloatingBtnActive: {
     backgroundColor: '#991B1B',
@@ -1629,7 +1775,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontFamily: fonts.black,
     color: colors.white,
-    letterSpacing: 1,
+    letterSpacing: 1.2,
   },
 
   // ── SOS Marker Styling ──
@@ -1644,16 +1790,18 @@ const styles = StyleSheet.create({
 
   // ── Convoy Radar HUD ──
   radarHudContainer: {
-    backgroundColor: colors.cardElevated,
+    backgroundColor: 'rgba(30, 41, 59, 0.9)',
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.25)',
   },
   radarHudTitle: {
     fontSize: fontSize.xs - 1,
     fontFamily: fonts.bold,
     color: colors.primaryMuted,
-    letterSpacing: 1,
+    letterSpacing: 1.2,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
@@ -1667,13 +1815,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     borderRadius: radius.sm,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.xs + 2,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   radarMemberLabel: {
     fontSize: fontSize.xs - 1,
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
     marginTop: 2,
   },
@@ -1702,17 +1852,23 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: radius.md,
     marginTop: spacing.sm,
-    elevation: 4,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
   },
   navToggleBtnActive: {
     backgroundColor: colors.cardElevated,
     borderWidth: 1,
     borderColor: colors.borderLight,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   navToggleBtnText: {
     fontSize: fontSize.sm,
     fontFamily: fonts.bold,
     color: colors.white,
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
 });

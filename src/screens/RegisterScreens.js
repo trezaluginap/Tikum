@@ -1,13 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+    ActivityIndicator, Alert, Animated, Dimensions, KeyboardAvoidingView, Platform,
     Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { supabase } from '../../supabase';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
+import ConvoyDialog from '../components/common/ConvoyDialog';
 
 export default function RegisterScreens({ navigation }) {
     const [step, setStep] = useState(1);
@@ -21,7 +22,27 @@ export default function RegisterScreens({ navigation }) {
     
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [focusedField, setFocusedField] = useState(null);
+    const [dialogConfig, setDialogConfig] = useState({ visible: false });
+
+    // Step Transition Animation
+    const stepFadeAnim = useRef(new Animated.Value(1)).current;
+
+    const getFriendlyRegisterError = (errorMsg) => {
+        if (!errorMsg) return 'Registrasi gagal. Silakan coba lagi.';
+        const lower = errorMsg.toLowerCase();
+        if (lower.includes('already registered') || lower.includes('user_already_exists')) {
+            return 'Email ini sudah terdaftar. Silakan gunakan email lain atau login.';
+        }
+        if (lower.includes('password should be at least')) {
+            return 'Password terlalu pendek. Gunakan minimal 6 karakter.';
+        }
+        if (lower.includes('invalid email') || lower.includes('email_invalid')) {
+            return 'Format alamat email tidak valid. Periksa kembali penulisan email.';
+        }
+        return errorMsg;
+    };
 
     // Step 1 validation
     const isStep1Valid = email.includes('@') && password.length >= 6 && confirmPassword === password;
@@ -31,11 +52,19 @@ export default function RegisterScreens({ navigation }) {
 
     const handleNext = () => {
         if (!isStep1Valid) return;
+        Animated.sequence([
+            Animated.timing(stepFadeAnim, { toValue: 0.2, duration: 120, useNativeDriver: true }),
+            Animated.timing(stepFadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+        ]).start();
         setStep(2);
     };
 
     const handleBack = () => {
         if (step === 2) {
+            Animated.sequence([
+                Animated.timing(stepFadeAnim, { toValue: 0.2, duration: 120, useNativeDriver: true }),
+                Animated.timing(stepFadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+            ]).start();
             setStep(1);
         } else {
             navigation.goBack();
@@ -73,10 +102,27 @@ export default function RegisterScreens({ navigation }) {
                 }
             }
 
-            Alert.alert('Registrasi Berhasil!', 'Silakan periksa email Anda untuk verifikasi (jika diaktifkan) atau login.');
-            navigation.navigate('Login');
+            setDialogConfig({
+                visible: true,
+                type: 'success',
+                icon: 'account-check',
+                title: 'Registrasi Berhasil!',
+                message: 'Akun radar kamu telah berhasil dibuat. Silakan login untuk bergabung ke rombongan convoy.',
+                buttons: [{
+                    text: 'MASUK SEKARANG',
+                    style: 'primary',
+                    onPress: () => navigation.navigate('Login')
+                }],
+            });
         } catch (error) {
-            Alert.alert('Registrasi Gagal', error.message);
+            setDialogConfig({
+                visible: true,
+                type: 'danger',
+                icon: 'account-alert',
+                title: 'Registrasi Gagal',
+                message: getFriendlyRegisterError(error.message),
+                buttons: [{ text: 'MENGERTI', style: 'primary' }],
+            });
         } finally {
             setLoading(false);
         }
@@ -85,8 +131,20 @@ export default function RegisterScreens({ navigation }) {
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar style="light" backgroundColor={colors.background} />
+
+            {/* Custom Dialog */}
+            <ConvoyDialog
+                visible={dialogConfig.visible}
+                type={dialogConfig.type}
+                icon={dialogConfig.icon}
+                title={dialogConfig.title}
+                message={dialogConfig.message}
+                buttons={dialogConfig.buttons}
+                onClose={() => setDialogConfig({ visible: false })}
+            />
+
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={{ flex: 1 }}
             >
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -114,10 +172,9 @@ export default function RegisterScreens({ navigation }) {
                     </View>
 
                     {/* Form Section */}
-                    <View style={styles.formSection}>
-                        
-                        {/* ── STEP 1: Email & Password ── */}
-                        {step === 1 && (
+                    <Animated.View style={[styles.formSection, { opacity: stepFadeAnim }]}>
+                        {step === 1 ? (
+                            /* ── STEP 1: Email & Password ── */
                             <View style={styles.stepContainer}>
                                 <View style={[styles.inputGroup, focusedField === 'email' && styles.inputGroupFocused]}>
                                     <MaterialCommunityIcons name="email-outline" size={20} color={focusedField === 'email' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
@@ -143,6 +200,8 @@ export default function RegisterScreens({ navigation }) {
                                         value={password}
                                         onChangeText={setPassword}
                                         secureTextEntry={!showPassword}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
                                         onFocus={() => setFocusedField('password')}
                                         onBlur={() => setFocusedField(null)}
                                     />
@@ -168,18 +227,21 @@ export default function RegisterScreens({ navigation }) {
                                         placeholderTextColor={colors.textDisabled}
                                         value={confirmPassword}
                                         onChangeText={setConfirmPassword}
-                                        secureTextEntry={!showPassword}
+                                        secureTextEntry={!showConfirmPassword}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
                                         onFocus={() => setFocusedField('confirmPassword')}
                                         onBlur={() => setFocusedField(null)}
                                     />
+                                    <Pressable onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.togglePassword}>
+                                        <MaterialCommunityIcons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textMuted} />
+                                    </Pressable>
                                 </View>
 
-                                {passwordMismatch && (
-                                    <View style={styles.errorRow}>
-                                        <MaterialCommunityIcons name="alert-circle-outline" size={14} color={colors.danger} />
-                                        <Text style={styles.errorText}>Password tidak cocok</Text>
-                                    </View>
-                                )}
+                                <View style={[styles.errorRow, { opacity: passwordMismatch ? 1 : 0 }]}>
+                                    <MaterialCommunityIcons name="alert-circle-outline" size={14} color={colors.danger} />
+                                    <Text style={styles.errorText}>Password tidak cocok</Text>
+                                </View>
 
                                 <Pressable
                                     onPress={handleNext}
@@ -190,10 +252,8 @@ export default function RegisterScreens({ navigation }) {
                                     <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} style={{ marginLeft: 8 }} />
                                 </Pressable>
                             </View>
-                        )}
-
-                        {/* ── STEP 2: Identitas ── */}
-                        {step === 2 && (
+                        ) : (
+                            /* ── STEP 2: Identitas ── */
                             <View style={styles.stepContainer}>
                                 <View style={[styles.inputGroup, focusedField === 'displayName' && styles.inputGroupFocused]}>
                                     <MaterialCommunityIcons name="account-outline" size={20} color={focusedField === 'displayName' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
@@ -227,17 +287,17 @@ export default function RegisterScreens({ navigation }) {
                                     style={[styles.primaryButton, (!isStep2Valid || loading) && styles.primaryButtonDisabled]}
                                 >
                                     {loading ? (
-                                        <ActivityIndicator color={colors.white} size={24} />
+                                        <ActivityIndicator color={colors.white} size="small" />
                                     ) : (
                                         <>
-                                            <MaterialCommunityIcons name="radar" size={20} color={colors.white} style={{ marginRight: 8 }} />
-                                            <Text style={styles.primaryButtonText}>BUAT IDENTITAS</Text>
+                                            <Text style={styles.primaryButtonText}>DAFTAR AKUN</Text>
+                                            <MaterialCommunityIcons name="check-circle-outline" size={20} color={colors.white} style={{ marginLeft: 8 }} />
                                         </>
                                     )}
                                 </Pressable>
                             </View>
                         )}
-                    </View>
+                    </Animated.View>
 
                     {/* Login Link */}
                     {step === 1 && (
@@ -272,8 +332,8 @@ const styles = StyleSheet.create({
     stepIndicator: { fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.primaryMuted, letterSpacing: 2 },
 
     headerSection: { marginBottom: 32 },
-    mainTitle: { fontSize: 32, fontFamily: fonts.black, color: colors.textPrimary, letterSpacing: -1, marginBottom: spacing.xs },
-    subtitle: { fontSize: fontSize.sm, fontFamily: fonts.regular, color: colors.textSecondary, lineHeight: 20 },
+    mainTitle: { fontSize: 36, fontFamily: fonts.black, color: colors.textPrimary, letterSpacing: -1.2, marginBottom: spacing.xs },
+    subtitle: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.textSecondary, lineHeight: 22 },
 
     formSection: { marginBottom: spacing.xl },
     stepContainer: { width: '100%' },
@@ -287,27 +347,28 @@ const styles = StyleSheet.create({
     },
     inputGroupFocused: {
         borderColor: colors.primary,
-        borderWidth: 1.5,
-        backgroundColor: 'rgba(99,102,241,0.05)',
+        borderWidth: 1,
+        backgroundColor: 'rgba(99,102,241,0.08)',
     },
     inputGroupError: {
         borderColor: colors.danger,
-        borderWidth: 1.5,
-        backgroundColor: 'rgba(239,68,68,0.05)',
+        borderWidth: 1,
+        backgroundColor: 'rgba(239,68,68,0.08)',
     },
     inputIcon: { marginRight: spacing.sm },
-    inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.regular, color: colors.textPrimary },
+    inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.medium, color: colors.textPrimary },
     togglePassword: { padding: spacing.sm },
 
     primaryButton: {
         flexDirection: 'row', backgroundColor: colors.primary, borderRadius: radius.md,
         paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
-        elevation: 4, marginTop: spacing.md,
+        elevation: 6, shadowColor: colors.primary, shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.45, shadowRadius: 12, marginTop: spacing.md,
     },
-    primaryButtonDisabled: { backgroundColor: colors.borderLight, elevation: 0 },
-    primaryButtonText: { color: colors.white, fontSize: fontSize.md, fontFamily: fonts.bold, letterSpacing: 1 },
+    primaryButtonDisabled: { backgroundColor: colors.borderLight, elevation: 0, shadowOpacity: 0 },
+    primaryButtonText: { color: colors.white, fontSize: fontSize.md, fontFamily: fonts.bold, letterSpacing: 1.2 },
 
     footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: spacing.xl },
-    footerText: { fontSize: fontSize.sm, fontFamily: fonts.regular, color: colors.textMuted },
+    footerText: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.textMuted },
     loginLink: { fontSize: fontSize.sm, fontFamily: fonts.bold, color: colors.primary },
 });

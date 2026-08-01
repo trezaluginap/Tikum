@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+    ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Platform,
     Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -10,6 +10,7 @@ import { supabase } from '../../supabase';
 import { navigate } from '../navigation/rootNavigation';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
+import ConvoyDialog from '../components/common/ConvoyDialog';
 
 export default function LoginScreen({ navigation }) {
     const [email, setEmail] = useState('');
@@ -18,6 +19,44 @@ export default function LoginScreen({ navigation }) {
     const [showPassword, setShowPassword] = useState(false);
     const [focusedField, setFocusedField] = useState(null);
     const [forgotModalVisible, setForgotModalVisible] = useState(false);
+    const [dialogConfig, setDialogConfig] = useState({ visible: false });
+
+    // Entrance animations
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideUpAnim = useRef(new Animated.Value(30)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(fadeAnim, {
+                toValue: 1,
+                duration: 450,
+                useNativeDriver: true,
+            }),
+            Animated.timing(slideUpAnim, {
+                toValue: 0,
+                duration: 450,
+                useNativeDriver: true,
+            }),
+        ]).start();
+    }, []);
+
+    const getFriendlyErrorMessage = (errorMsg) => {
+        if (!errorMsg) return 'Periksa kembali email dan password Anda.';
+        const lower = errorMsg.toLowerCase();
+        if (lower.includes('invalid login credentials') || lower.includes('invalid_credentials')) {
+            return 'Email atau password yang Anda masukkan salah. Silakan periksa kembali.';
+        }
+        if (lower.includes('email not confirmed')) {
+            return 'Alamat email Anda belum dikonfirmasi. Cek inbox email Anda untuk melakukan verifikasi.';
+        }
+        if (lower.includes('too many requests') || lower.includes('rate limit')) {
+            return 'Terlalu banyak percobaan login gagal. Silakan tunggu beberapa menit.';
+        }
+        if (lower.includes('user not found')) {
+            return 'Akun dengan email ini belum terdaftar. Silakan registrasi terlebih dahulu.';
+        }
+        return errorMsg;
+    };
 
     const isDisabled = useMemo(() => {
         return !email.includes('@') || password.length < 6 || loading;
@@ -35,7 +74,14 @@ export default function LoginScreen({ navigation }) {
 
             if (error) throw error;
         } catch (error) {
-            Alert.alert('Login Gagal', error.message || 'Periksa kembali email dan password Anda.');
+            setDialogConfig({
+                visible: true,
+                type: 'danger',
+                icon: 'lock-alert',
+                title: 'Login Gagal',
+                message: getFriendlyErrorMessage(error.message),
+                buttons: [{ text: 'MENGERTI', style: 'primary' }],
+            });
         } finally {
             setLoading(false);
         }
@@ -53,6 +99,17 @@ export default function LoginScreen({ navigation }) {
         <SafeAreaView style={styles.container}>
             <StatusBar style="light" backgroundColor={colors.background} />
 
+            {/* Custom Dialog */}
+            <ConvoyDialog
+                visible={dialogConfig.visible}
+                type={dialogConfig.type}
+                icon={dialogConfig.icon}
+                title={dialogConfig.title}
+                message={dialogConfig.message}
+                buttons={dialogConfig.buttons}
+                onClose={() => setDialogConfig({ visible: false })}
+            />
+
             {/* Forgot Password Modal */}
             <ForgotPasswordModal
                 visible={forgotModalVisible}
@@ -60,7 +117,7 @@ export default function LoginScreen({ navigation }) {
             />
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={{ flex: 1 }}
             >
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -69,7 +126,7 @@ export default function LoginScreen({ navigation }) {
                 <View style={styles.glowTop} />
                 <View style={styles.glowBottom} />
 
-                <View style={styles.content}>
+                <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideUpAnim }] }]}>
                     {/* Header */}
                     <View style={styles.headerSection}>
                         <View style={styles.logoBadge}>
@@ -77,7 +134,7 @@ export default function LoginScreen({ navigation }) {
                         </View>
                         <Text style={styles.mainTitle}>TiKum</Text>
                         <Text style={styles.subtitle}>
-                            Sistem koordinasi konvoi terpusat. Masukkan kredensial untuk mengakses radar.
+                            Sistem koordinasi konvoi terpusat. Masukkan kredensial untuk mengakses akun.
                         </Text>
                     </View>
 
@@ -103,12 +160,13 @@ export default function LoginScreen({ navigation }) {
                             <MaterialCommunityIcons name="lock-outline" size={20} color={focusedField === 'password' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                             <TextInput
                                 style={styles.inputField}
-                                placeholder="Password Akses"
+                                placeholder="Password (Min. 6 Karakter)"
                                 placeholderTextColor={colors.textDisabled}
                                 value={password}
                                 onChangeText={setPassword}
                                 secureTextEntry={!showPassword}
-                                editable={!loading}
+                                autoCapitalize="none"
+                                autoCorrect={false}
                                 onFocus={() => setFocusedField('password')}
                                 onBlur={() => setFocusedField(null)}
                             />
@@ -133,7 +191,7 @@ export default function LoginScreen({ navigation }) {
                             ) : (
                                 <View style={styles.buttonContent}>
                                     <MaterialCommunityIcons name="login-variant" size={20} color={colors.white} style={styles.buttonIcon} />
-                                    <Text style={styles.loginButtonText}>INISIASI KONEKSI</Text>
+                                    <Text style={styles.loginButtonText}>Login</Text>
                                 </View>
                             )}
                         </Pressable>
@@ -141,12 +199,12 @@ export default function LoginScreen({ navigation }) {
 
                     {/* Footer */}
                     <View style={styles.footer}>
-                        <Text style={styles.footerText}>Belum tergabung dalam jaringan? </Text>
+                        <Text style={styles.footerText}>Belum memiliki identitas akun? </Text>
                         <Pressable onPress={handleBackToRegister}>
-                            <Text style={styles.registerLink}>Registrasi Radar</Text>
+                            <Text style={styles.registerLink}>Registrasi Akun</Text>
                         </Pressable>
                     </View>
-                </View>
+                </Animated.View>
             </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
@@ -173,14 +231,15 @@ const styles = StyleSheet.create({
 
     headerSection: { marginBottom: 40, alignItems: 'center' },
     logoBadge: {
-        width: 64, height: 64, borderRadius: radius.xl,
-        backgroundColor: colors.cardElevated,
+        width: 72, height: 72, borderRadius: radius.xl,
+        backgroundColor: colors.card,
         justifyContent: 'center', alignItems: 'center',
-        marginBottom: spacing.md, borderWidth: 1, borderColor: colors.borderLight,
-        elevation: 8,
+        marginBottom: spacing.md, borderWidth: 1.5, borderColor: 'rgba(99, 102, 241, 0.3)',
+        shadowColor: colors.primary, shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35, shadowRadius: 10, elevation: 8,
     },
-    mainTitle: { fontSize: 40, fontFamily: fonts.black, color: colors.textPrimary, letterSpacing: -1, marginBottom: spacing.xs },
-    subtitle: { fontSize: fontSize.sm, fontFamily: fonts.regular, color: colors.textSecondary, textAlign: 'center', lineHeight: 20, maxWidth: '85%' },
+    mainTitle: { fontSize: 42, fontFamily: fonts.black, color: colors.textPrimary, letterSpacing: -1.5, marginBottom: spacing.xs },
+    subtitle: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, maxWidth: '85%' },
 
     formSection: { marginBottom: spacing.xl },
     inputGroup: {
@@ -192,11 +251,11 @@ const styles = StyleSheet.create({
     },
     inputGroupFocused: {
         borderColor: colors.primary,
-        borderWidth: 1.5,
-        backgroundColor: 'rgba(99,102,241,0.05)',
+        borderWidth: 1,
+        backgroundColor: 'rgba(99,102,241,0.08)',
     },
     inputIcon: { marginRight: spacing.sm },
-    inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.regular, color: colors.textPrimary },
+    inputField: { flex: 1, height: 48, fontSize: fontSize.md, fontFamily: fonts.medium, color: colors.textPrimary },
     togglePassword: { padding: spacing.sm },
 
     forgotRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: spacing.xl },
@@ -205,14 +264,15 @@ const styles = StyleSheet.create({
     loginButton: {
         backgroundColor: colors.primary, borderRadius: radius.md,
         paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
-        elevation: 4, shadowColor: colors.primary, shadowOpacity: 0.4, shadowRadius: 10,
+        elevation: 6, shadowColor: colors.primary, shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.45, shadowRadius: 12,
     },
-    loginButtonDisabled: { backgroundColor: colors.borderLight, elevation: 0 },
+    loginButtonDisabled: { backgroundColor: colors.borderLight, elevation: 0, shadowOpacity: 0 },
     buttonContent: { flexDirection: 'row', alignItems: 'center' },
     buttonIcon: { marginRight: spacing.sm },
-    loginButtonText: { color: colors.white, fontSize: fontSize.md, fontFamily: fonts.bold, letterSpacing: 1 },
+    loginButtonText: { color: colors.white, fontSize: fontSize.md, fontFamily: fonts.bold, letterSpacing: 1.2 },
 
     footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: spacing.xl, borderTopWidth: 1, borderTopColor: colors.border },
-    footerText: { fontSize: fontSize.sm, fontFamily: fonts.regular, color: colors.textMuted },
+    footerText: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.textMuted },
     registerLink: { fontSize: fontSize.sm, fontFamily: fonts.bold, color: colors.primary },
 });

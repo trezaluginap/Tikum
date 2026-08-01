@@ -149,7 +149,10 @@ function CurrentLocationButton({ onLocationFound, loading: externalLoading }) {
         Alert.alert('Izin Ditolak', 'Aktifkan izin lokasi untuk menggunakan fitur ini.');
         return;
       }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      let loc = await Location.getLastKnownPositionAsync();
+      if (!loc) {
+        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      }
       const [address] = await Location.reverseGeocodeAsync({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,

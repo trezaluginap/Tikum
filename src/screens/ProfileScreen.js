@@ -19,11 +19,22 @@ import {
 import { supabase } from '../../supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
+import ConvoyDialog from '../components/common/ConvoyDialog';
+import ConvoyToast from '../components/common/ConvoyToast';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
   
+  // Custom UI Notifications & Dialogs
+  const [dialogConfig, setDialogConfig] = useState({ visible: false });
+  const [toastConfig, setToastConfig] = useState({ visible: false });
+
+  const showToast = (type, title, message, duration = 4000) => {
+    setToastConfig({ visible: true, type, title, message });
+    setTimeout(() => setToastConfig((prev) => ({ ...prev, visible: false })), duration);
+  };
+
   // State untuk form
   const [displayName, setDisplayName] = useState('');
   const [vehicleName, setVehicleName] = useState('');
@@ -156,31 +167,37 @@ export default function ProfileScreen() {
         console.error('Error upserting to public.profiles:', dbErr);
       }
 
-      Alert.alert('Sukses', 'Profil berhasil diperbarui');
+      showToast('success', '✅ Sukses', 'Profil berhasil diperbarui!');
     } catch (error) {
-      Alert.alert('Gagal Update', error.message || 'Terjadi kesalahan');
+      showToast('danger', 'Gagal Update', error.message || 'Terjadi kesalahan saat menyimpan profil.');
     } finally {
       setUpdating(false);
     }
   };
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Apakah anda yakin ingin keluar dari sistem?', [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Keluar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const { error } = await supabase.auth.signOut();
-            if (error) throw error;
-            // Navigation is handled by AuthContext listening to session changes
-          } catch (error) {
-            Alert.alert('Error', error.message);
-          }
+    setDialogConfig({
+      visible: true,
+      type: 'danger',
+      icon: 'logout-variant',
+      title: 'Keluar Akun?',
+      message: 'Apakah Anda yakin ingin keluar dari sistem TiKum?',
+      buttons: [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Keluar Akun',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase.auth.signOut();
+              if (error) throw error;
+            } catch (error) {
+              showToast('danger', 'Error', error.message);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    });
   };
 
   if (loading) {
@@ -194,6 +211,25 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor={colors.background} />
+
+      {/* ══ CUSTOM OVERLAY DIALOGS & TOASTS ══ */}
+      <ConvoyToast
+        visible={toastConfig.visible}
+        type={toastConfig.type}
+        title={toastConfig.title}
+        message={toastConfig.message}
+        onClose={() => setToastConfig((prev) => ({ ...prev, visible: false }))}
+      />
+
+      <ConvoyDialog
+        visible={dialogConfig.visible}
+        type={dialogConfig.type}
+        icon={dialogConfig.icon}
+        title={dialogConfig.title}
+        message={dialogConfig.message}
+        buttons={dialogConfig.buttons}
+        onClose={() => setDialogConfig({ visible: false })}
+      />
 
       {/* Top Header Bar */}
       <View style={styles.topBar}>
