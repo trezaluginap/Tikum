@@ -3,8 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onProfilePress }) {
+  const { t } = useLanguage();
+
   // Entrance animation for whole header HUD
   const headerFadeAnim = useRef(new Animated.Value(0)).current;
   const headerSlideAnim = useRef(new Animated.Value(-12)).current;
@@ -39,17 +42,17 @@ export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onPro
 
   const getTickerItems = () => {
     const hr = new Date().getHours();
-    let timeSlogan = 'Rapatkan Barisan! 🏍️';
-    if (hr >= 11 && hr < 15) timeSlogan = 'Siap Riding Rombongan? 🚗';
-    else if (hr >= 15 && hr < 18.5) timeSlogan = 'Gas Tipis-Tipis Santai 💨';
-    else if (hr < 4 || hr >= 18.5) timeSlogan = 'Safety Riding Malam Ini! 📍';
+    let timeSlogan = t('home.sloganMorning');
+    if (hr >= 11 && hr < 15) timeSlogan = t('home.sloganNoon');
+    else if (hr >= 15 && hr < 18.5) timeSlogan = t('home.sloganAfternoon');
+    else if (hr < 4 || hr >= 18.5) timeSlogan = t('home.sloganNight');
 
     return [
       { icon: 'shield-check', text: timeSlogan, color: colors.primaryMuted },
-      { icon: 'speedometer', text: '💡 Cek tekanan ban & BBM sebelum jalan', color: '#10B981' },
-      { icon: 'radar', text: '📡 TiKum Radar Online · Supabase Active', color: '#0EA5E9' },
-      { icon: 'alert-decagram-outline', text: '🚨 Tombol SOS siap jika darurat', color: '#EF4444' },
-      { icon: 'car-multiple', text: '📍 Bagikan 6-digit PIN untuk gabung', color: '#F59E0B' },
+      { icon: 'speedometer', text: t('home.tickerTire'), color: '#10B981' },
+      { icon: 'radar', text: t('home.tickerRadar'), color: '#0EA5E9' },
+      { icon: 'alert-decagram-outline', text: t('home.tickerSos'), color: '#EF4444' },
+      { icon: 'car-multiple', text: t('home.tickerPin'), color: '#F59E0B' },
     ];
   };
 

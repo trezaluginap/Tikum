@@ -716,7 +716,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Text style={{ fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.primaryMuted }}>
-                    {locale === 'id' ? 'Indonesia' : locale === 'en' ? 'English' : 'Melayu'}
+                    {locale === 'id' ? 'Indonesia' : locale === 'en' ? 'English' : locale === 'ms' ? 'Melayu' : '日本語'}
                   </Text>
                   <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
                 </View>
@@ -765,7 +765,7 @@ export default function HomeScreen() {
         type="info"
         icon="translate"
         title={t('settings.changeLang')}
-        message="Pilih bahasa yang ingin digunakan / Choose language / Pilih bahasa:"
+        message="Pilih bahasa / Choose language / 言語を選択:"
         buttons={[
           {
             text: 'Bahasa Indonesia 🇮🇩',
@@ -795,7 +795,16 @@ export default function HomeScreen() {
             }
           },
           {
-            text: locale === 'id' ? 'BATAL' : locale === 'ms' ? 'BATAL' : 'CANCEL',
+            text: '日本語 🇯🇵',
+            style: locale === 'ja' ? 'primary' : 'secondary',
+            onPress: () => {
+              changeLocale('ja');
+              setLanguageModalVisible(false);
+              showToast('success', '言語変更', 'アプリの言語が日本語に変更されました。');
+            }
+          },
+          {
+            text: locale === 'id' ? 'BATAL' : locale === 'ms' ? 'BATAL' : locale === 'ja' ? 'キャンセル' : 'CANCEL',
             style: 'secondary',
             onPress: () => setLanguageModalVisible(false)
           }

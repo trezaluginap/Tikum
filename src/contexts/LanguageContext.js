@@ -15,7 +15,7 @@ export function LanguageProvider({ children }) {
     async function loadStoredLocale() {
       try {
         const storedLocale = await AsyncStorage.getItem(ASYNC_STORAGE_LOCALE_KEY);
-        if (storedLocale && ['id', 'en', 'ms'].includes(storedLocale)) {
+        if (storedLocale && ['id', 'en', 'ms', 'ja'].includes(storedLocale)) {
           setLocaleState(storedLocale);
         }
       } catch (err) {
@@ -29,7 +29,7 @@ export function LanguageProvider({ children }) {
 
   // Save selection and update state
   const changeLocale = async (newLocale) => {
-    if (!['id', 'en', 'ms'].includes(newLocale)) return;
+    if (!['id', 'en', 'ms', 'ja'].includes(newLocale)) return;
     setLocaleState(newLocale);
     try {
       await AsyncStorage.setItem(ASYNC_STORAGE_LOCALE_KEY, newLocale);

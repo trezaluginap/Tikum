@@ -3,14 +3,16 @@ import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 function TripItem({ trip, onResume }) {
+  const { t } = useLanguage();
   const tripData = Array.isArray(trip.room_trips) ? trip.room_trips[0] : trip.room_trips;
   const rawVC = tripData?.vehicle_count ?? 0;
   const modeCode = rawVC >= 1000 ? Math.floor(rawVC / 1000) : 2;
   const cleanCount = rawVC >= 1000 ? (rawVC % 1000) : rawVC;
   const isMotor = modeCode === 1;
-  const vehicleLabel = isMotor ? 'motor' : 'mobil';
+  const vehicleLabel = isMotor ? t('home.motorcycle') : t('home.car');
   const vehicleEmoji = isMotor ? '🏍️' : '🚗';
 
   return (
@@ -28,6 +30,7 @@ function TripItem({ trip, onResume }) {
 }
 
 export function ActiveTripsCard({ activeTrips, loading, onTripResume, onHistoryPress }) {
+  const { t } = useLanguage();
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
@@ -50,7 +53,7 @@ export function ActiveTripsCard({ activeTrips, loading, onTripResume, onHistoryP
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.sectionTitle}>Perjalanan Aktif</Text>
+        <Text style={styles.sectionTitle}>{t('home.activeTripsTitle')}</Text>
         {activeTrips.length > 0 && (
           <View style={styles.liveBadge}>
             <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
@@ -66,8 +69,8 @@ export function ActiveTripsCard({ activeTrips, loading, onTripResume, onHistoryP
           <View style={styles.emptyIcon}>
             <MaterialCommunityIcons name="map-marker-off-outline" size={28} color={colors.textMuted} />
           </View>
-          <Text style={styles.emptyText}>Belum ada perjalanan aktif</Text>
-          <Text style={styles.emptySubText}>Buat room untuk memulai convoy</Text>
+          <Text style={styles.emptyText}>{t('home.noActiveTrips')}</Text>
+          <Text style={styles.emptySubText}>{t('home.noActiveTripsSub')}</Text>
         </View>
       ) : (
         activeTrips.map((trip) => (
@@ -76,7 +79,7 @@ export function ActiveTripsCard({ activeTrips, loading, onTripResume, onHistoryP
       )}
 
       <TouchableOpacity style={styles.historyBtn} onPress={onHistoryPress} activeOpacity={0.7}>
-        <Text style={styles.historyText}>Lihat Riwayat</Text>
+        <Text style={styles.historyText}>{t('home.viewHistory')}</Text>
         <MaterialCommunityIcons name="chevron-right" size={18} color={colors.primary} />
       </TouchableOpacity>
     </View>
