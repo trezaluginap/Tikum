@@ -143,3 +143,5 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
   },
 });
+
+export default JoinRoomModal;

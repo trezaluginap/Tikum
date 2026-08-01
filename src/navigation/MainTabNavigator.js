@@ -16,7 +16,7 @@ function CustomGlassTabBar({ state, descriptors, navigation }) {
 
   const getTabLabel = (routeName) => {
     switch (routeName) {
-      case 'Home': return t('home.Radar');
+      case 'Radar': return t('home.radar');
       case 'Destinasi': return t('home.destinasi');
       case 'Stats': return t('home.statistik');
       case 'Settings': return t('home.pengaturan');
