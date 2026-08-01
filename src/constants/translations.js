@@ -63,6 +63,8 @@ export const TRANSLATIONS = {
       tickerRadar: '📡 TiKum Radar Online · Supabase Active',
       tickerSos: '🚨 Tombol SOS siap jika darurat',
       tickerPin: '📍 Bagikan 6-digit PIN untuk gabung',
+      searchPlaceholder: 'Cari destinasi riding...',
+      allRegions: 'Semua',
     },
     settings: {
       title: 'Pengaturan Aplikasi',
@@ -149,6 +151,8 @@ export const TRANSLATIONS = {
       tickerRadar: '📡 TiKum Radar Online · Supabase Active',
       tickerSos: '🚨 SOS button ready for emergency',
       tickerPin: '📍 Share 6-digit PIN to let others join',
+      searchPlaceholder: 'Search riding destinations...',
+      allRegions: 'All',
     },
     settings: {
       title: 'App Settings',
@@ -235,6 +239,8 @@ export const TRANSLATIONS = {
       tickerRadar: '📡 TiKum Radar Dalam Talian · Supabase Aktif',
       tickerSos: '🚨 Butang SOS sedia jika kecemasan',
       tickerPin: '📍 Kongsi 6-digit PIN untuk menyertai',
+      searchPlaceholder: 'Cari destinasi riding...',
+      allRegions: 'Semua',
     },
     settings: {
       title: 'Tetapan Aplikasi',
@@ -321,6 +327,8 @@ export const TRANSLATIONS = {
       tickerRadar: '📡 TiKum レーダーオンライン · Supabase アクティブ',
       tickerSos: '🚨 緊急時はSOSボタンを使用可能',
       tickerPin: '📍 参加用の6桁PINコードを共有',
+      searchPlaceholder: 'ツーリング目的地を検索...',
+      allRegions: 'すべて',
     },
     settings: {
       title: 'アプリ設定',
