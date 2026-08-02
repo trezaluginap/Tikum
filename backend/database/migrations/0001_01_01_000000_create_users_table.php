@@ -22,7 +22,7 @@ return new class extends Migration
             $table->foreignUuid('user_id')->unique()->constrained()->cascadeOnDelete();
             $table->string('display_name');
             $table->string('vehicle_name');
-            $table->string('phone')->nullable();
+            $table->string('phone_number')->nullable();
             $table->text('bio')->nullable();
             $table->string('avatar_path')->nullable();
             $table->timestamps();

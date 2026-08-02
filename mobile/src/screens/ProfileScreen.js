@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 
 import { supabase } from '../../supabase';
+import { getProfile, updateProfile } from '../api/profile.api';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import ConvoyDialog from '../components/common/ConvoyDialog';
@@ -24,7 +25,7 @@ import ConvoyToast from '../components/common/ConvoyToast';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
-  const { user } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   
   // Custom UI Notifications & Dialogs
   const [dialogConfig, setDialogConfig] = useState({ visible: false });
@@ -55,19 +56,16 @@ export default function ProfileScreen() {
   const loadUserProfile = async () => {
     try {
       setLoading(true);
-      const name = user?.user_metadata?.display_name || '';
-      const vehicle = user?.user_metadata?.vehicle_name || '';
-      const photo = user?.user_metadata?.profile_photo_url || null;
-      const phone = user?.user_metadata?.phone_number || '';
-      const userBio = user?.user_metadata?.bio || '';
+      const data = await getProfile();
+      const profile = data.profile;
 
-      setDisplayName(name);
-      setVehicleName(vehicle);
-      setProfileImage(photo);
-      setPhoneNumber(phone);
-      setBio(userBio);
+      setDisplayName(profile?.display_name || '');
+      setVehicleName(profile?.vehicle_name || '');
+      setProfileImage(profile?.avatar_path || null);
+      setPhoneNumber(profile?.phone_number || '');
+      setBio(profile?.bio || '');
     } catch (error) {
-      console.error('Error loading profile:', error);
+      showToast('danger', 'Gagal Memuat Profil', error.message || 'Profil gagal dimuat.');
     } finally {
       setLoading(false);
     }
@@ -143,29 +141,19 @@ export default function ProfileScreen() {
 
     setUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          display_name: displayName,
-          vehicle_name: vehicleName,
-          profile_photo_url: profileImage,
-          phone_number: phoneNumber,
-          bio: bio,
-          updated_at: new Date().toISOString(),
-        },
+      const data = await updateProfile({
+        display_name: displayName.trim(),
+        vehicle_name: vehicleName.trim(),
+        phone_number: phoneNumber.trim() || null,
+        bio: bio.trim() || null,
       });
 
-      if (error) throw error;
-
-      // Upsert to public.profiles table to share display name and avatar with other room members
-      try {
-        await supabase.from('profiles').upsert({
-          id: user.id,
-          display_name: `${displayName}||${profileImage || ''}`,
-          updated_at: new Date(),
-        });
-      } catch (dbErr) {
-        console.error('Error upserting to public.profiles:', dbErr);
-      }
+      setDisplayName(data.profile.display_name || '');
+      setVehicleName(data.profile.vehicle_name || '');
+      setPhoneNumber(data.profile.phone_number || '');
+      setBio(data.profile.bio || '');
+      setProfileImage(data.profile.avatar_path || profileImage || null);
+      await refreshUser();
 
       showToast('success', '✅ Sukses', 'Profil berhasil diperbarui!');
     } catch (error) {
@@ -189,8 +177,7 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const { error } = await supabase.auth.signOut();
-              if (error) throw error;
+              await logout();
             } catch (error) {
               showToast('danger', 'Error', error.message);
             }

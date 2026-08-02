@@ -15,7 +15,7 @@ class Profile extends Model
         'user_id',
         'display_name',
         'vehicle_name',
-        'phone',
+        'phone_number',
         'bio',
         'avatar_path',
     ];

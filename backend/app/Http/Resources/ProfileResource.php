@@ -13,7 +13,7 @@ class ProfileResource extends JsonResource
             'id' => $this->id,
             'display_name' => $this->display_name,
             'vehicle_name' => $this->vehicle_name,
-            'phone' => $this->phone,
+            'phone_number' => $this->phone_number,
             'bio' => $this->bio,
             'avatar_path' => $this->avatar_path,
             'created_at' => $this->created_at?->toISOString(),
