@@ -1,16 +1,17 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-    ActivityIndicator, Alert, Animated, Dimensions, KeyboardAvoidingView, Platform,
+    ActivityIndicator, Animated, KeyboardAvoidingView, Platform,
     Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
-import { supabase } from '../../supabase';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
+import { useAuth } from '../contexts/AuthContext';
 import ConvoyDialog from '../components/common/ConvoyDialog';
 
 export default function RegisterScreens({ navigation }) {
+    const { register, logout } = useAuth();
     const [step, setStep] = useState(1);
     
     // Form Data
@@ -32,7 +33,7 @@ export default function RegisterScreens({ navigation }) {
     const getFriendlyRegisterError = (errorMsg) => {
         if (!errorMsg) return 'Registrasi gagal. Silakan coba lagi.';
         const lower = errorMsg.toLowerCase();
-        if (lower.includes('already registered') || lower.includes('user_already_exists')) {
+        if (lower.includes('already registered') || lower.includes('user_already_exists') || lower.includes('already been taken')) {
             return 'Email ini sudah terdaftar. Silakan gunakan email lain atau login.';
         }
         if (lower.includes('password should be at least')) {
@@ -48,7 +49,7 @@ export default function RegisterScreens({ navigation }) {
     const isStep1Valid = email.includes('@') && password.length >= 6 && confirmPassword === password;
     const passwordMismatch = confirmPassword.length > 0 && confirmPassword !== password;
     // Step 2 validation
-    const isStep2Valid = displayName.trim().length > 0;
+    const isStep2Valid = displayName.trim().length > 0 && vehicleName.trim().length > 0;
 
     const handleNext = () => {
         if (!isStep1Valid) return;
@@ -76,31 +77,13 @@ export default function RegisterScreens({ navigation }) {
         setLoading(true);
 
         try {
-            const { data, error } = await supabase.auth.signUp({
+            await register({
                 email: email.trim().toLowerCase(),
-                password: password,
-                options: {
-                    data: {
-                        display_name: displayName,
-                        vehicle_name: vehicleName,
-                    }
-                }
+                password,
+                displayName: displayName.trim(),
+                vehicleName: vehicleName.trim(),
             });
-
-            if (error) throw error;
-
-            // Sync public profile immediately
-            if (data?.user) {
-                try {
-                    await supabase.from('profiles').upsert({
-                        id: data.user.id,
-                        display_name: `${displayName}||`,
-                        updated_at: new Date(),
-                    });
-                } catch (profileErr) {
-                    console.warn('Gagal membuat profil publik:', profileErr);
-                }
-            }
+            await logout();
 
             setDialogConfig({
                 visible: true,
@@ -272,7 +255,7 @@ export default function RegisterScreens({ navigation }) {
                                     <MaterialCommunityIcons name="car-sports" size={20} color={focusedField === 'vehicle' ? colors.primary : colors.textMuted} style={styles.inputIcon} />
                                     <TextInput
                                         style={styles.inputField}
-                                        placeholder="Unit Kendaraan (Opsional)"
+                                        placeholder="Unit Kendaraan"
                                         placeholderTextColor={colors.textDisabled}
                                         value={vehicleName}
                                         onChangeText={setVehicleName}

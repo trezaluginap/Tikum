@@ -6,13 +6,14 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
-import { supabase } from '../../supabase';
 import { navigate } from '../navigation/rootNavigation';
+import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 import ConvoyDialog from '../components/common/ConvoyDialog';
 
 export default function LoginScreen({ navigation }) {
+    const { login } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -67,12 +68,10 @@ export default function LoginScreen({ navigation }) {
         setLoading(true);
 
         try {
-            const { error } = await supabase.auth.signInWithPassword({
+            await login({
                 email: email.trim().toLowerCase(),
-                password: password,
+                password,
             });
-
-            if (error) throw error;
         } catch (error) {
             setDialogConfig({
                 visible: true,
