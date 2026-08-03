@@ -16,6 +16,7 @@ class ProfileResource extends JsonResource
             'phone_number' => $this->phone_number,
             'bio' => $this->bio,
             'avatar_path' => $this->avatar_path,
+            'avatar_url' => $this->avatar_path ? $request->getSchemeAndHttpHost().'/storage/'.$this->avatar_path : null,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

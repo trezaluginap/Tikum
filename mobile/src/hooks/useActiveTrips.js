@@ -1,13 +1,20 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 
-import { supabase } from '../../supabase';
+import { getActiveRooms } from '../api/rooms.api';
 import { useAuth } from '../contexts/AuthContext';
 
-/**
- * Hook untuk mengambil room aktif milik user (sebagai host) dari Supabase.
- * Auto-refresh saat screen mendapat fokus.
- */
+const adaptTrip = (trip) => {
+  if (!trip) return trip;
+  const modeCode = trip.vehicle_type === 'motorcycle' ? 1 : (trip.use_tolls === false ? 3 : 2);
+  return { ...trip, vehicle_count: modeCode * 1000 + trip.vehicle_count };
+};
+
+const adaptRoom = (room) => ({
+  ...room,
+  room_trips: adaptTrip(room.room_trips || room.trip),
+});
+
 export function useActiveTrips() {
   const { user } = useAuth();
   const [activeTrips, setActiveTrips] = useState([]);
@@ -17,27 +24,8 @@ export function useActiveTrips() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('rooms')
-        .select(`
-          id,
-          room_pin,
-          created_at,
-          room_trips (
-            origin_latitude,
-            origin_longitude,
-            destination_latitude,
-            destination_longitude,
-            vehicle_count
-          )
-        `)
-        .eq('host_id', user.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(3);
-
-      if (error) throw error;
-      setActiveTrips(data || []);
+      const data = await getActiveRooms();
+      setActiveTrips((data.rooms || []).map(adaptRoom));
     } catch (error) {
       console.error('[useActiveTrips] Error:', error);
       setActiveTrips([]);
@@ -46,7 +34,6 @@ export function useActiveTrips() {
     }
   }, [user?.id]);
 
-  // Refresh otomatis saat screen refocus
   useFocusEffect(
     useCallback(() => {
       fetchActiveTrips();

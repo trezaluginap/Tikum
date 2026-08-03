@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import {
@@ -16,8 +15,7 @@ import {
     View
 } from 'react-native';
 
-import { supabase } from '../../supabase';
-import { getProfile, updateProfile } from '../api/profile.api';
+import { getProfile, updateProfile, uploadAvatar } from '../api/profile.api';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import ConvoyDialog from '../components/common/ConvoyDialog';
@@ -61,7 +59,7 @@ export default function ProfileScreen() {
 
       setDisplayName(profile?.display_name || '');
       setVehicleName(profile?.vehicle_name || '');
-      setProfileImage(profile?.avatar_path || null);
+      setProfileImage(profile?.avatar_url || profile?.avatar_path || null);
       setPhoneNumber(profile?.phone_number || '');
       setBio(profile?.bio || '');
     } catch (error) {
@@ -81,48 +79,24 @@ export default function ProfileScreen() {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const localUri = result.assets[0].uri;
-        setProfileImage(localUri); // Show immediately
+        const asset = result.assets[0];
+        const previousImage = profileImage;
+        const fileExt = asset.uri.split('.').pop()?.toLowerCase() || 'jpg';
 
-        // Upload to Supabase Storage
         setUploadingPhoto(true);
         try {
-          const fileExt = localUri.split('.').pop()?.toLowerCase() || 'jpg';
-          const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-          const filePath = `avatars/${fileName}`;
-
-          // Read the file as base64
-          const base64 = await FileSystem.readAsStringAsync(localUri, {
-            encoding: FileSystem.EncodingType.Base64,
+          const data = await uploadAvatar({
+            uri: asset.uri,
+            name: `avatar.${fileExt}`,
+            type: asset.mimeType || `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
           });
 
-          // Convert base64 to ArrayBuffer
-          const binaryStr = atob(base64);
-          const bytes = new Uint8Array(binaryStr.length);
-          for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-          }
-
-          const { error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(filePath, bytes.buffer, {
-              contentType: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
-              upsert: true,
-            });
-
-          if (uploadError) throw uploadError;
-
-          // Get the public URL
-          const { data: urlData } = supabase.storage
-            .from('avatars')
-            .getPublicUrl(filePath);
-
-          if (urlData?.publicUrl) {
-            setProfileImage(urlData.publicUrl);
-          }
+          setProfileImage(data.avatar_url);
+          await refreshUser();
+          showToast('success', 'Sukses', 'Foto profil berhasil diperbarui.');
         } catch (uploadErr) {
-          console.warn('Photo upload failed, using local URI:', uploadErr.message);
-          // Keep the local URI as fallback — user can still see it locally
+          setProfileImage(previousImage);
+          showToast('danger', 'Gagal Upload', uploadErr.message || 'Foto profil gagal diunggah.');
         } finally {
           setUploadingPhoto(false);
         }
@@ -152,7 +126,7 @@ export default function ProfileScreen() {
       setVehicleName(data.profile.vehicle_name || '');
       setPhoneNumber(data.profile.phone_number || '');
       setBio(data.profile.bio || '');
-      setProfileImage(data.profile.avatar_path || profileImage || null);
+      setProfileImage(data.profile.avatar_url || profileImage || null);
       await refreshUser();
 
       showToast('success', '✅ Sukses', 'Profil berhasil diperbarui!');

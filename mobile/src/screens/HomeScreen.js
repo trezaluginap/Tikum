@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import MapView from 'react-native-maps';
 
-import { supabase } from '../../supabase';
+import { createRoom, joinRoom } from '../api/rooms.api';
 import { useAuth } from '../contexts/AuthContext';
 import { ActiveTripsCard } from '../components/home/ActiveTripsCard';
 import { CreateRoomModal } from '../components/home/CreateRoomModal';
@@ -41,7 +41,7 @@ const INDONESIA_REGION = {
 
 export default function HomeScreen() {
   const navigation = useNavigation();
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuth();
 
   // ── Tab Navigation State ──
   const [activeTab, setActiveTab] = useState('radar'); // 'radar' | 'destinasi' | 'stats' | 'settings'
@@ -157,7 +157,7 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const displayName = user?.user_metadata?.display_name || 'Pengguna';
+  const displayName = user?.profile?.display_name || user?.user_metadata?.display_name || 'Pengguna';
   const profileInitial = displayName.substring(0, 2).toUpperCase();
   const isCreateReady = !!origin.coords && !!destination.coords && !createLoading;
 
@@ -168,34 +168,27 @@ export default function HomeScreen() {
       if (!user?.id) throw new Error('Sesi tidak valid, silakan login ulang.');
       if (!origin.coords || !destination.coords) throw new Error('Asal dan tujuan harus dipilih.');
 
-      const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-      const { data, error } = await supabase
-        .from('rooms')
-        .insert([{ room_pin: generatedPin, host_id: user.id, is_active: true }])
-        .select();
-
-      if (error) throw new Error(error.message);
-      if (!data?.length) throw new Error('Room dibuat tapi data tidak terambil');
-
-      const createdRoom = data[0];
-
-      let modeCode = 2; // default auto_toll
+      let modeCode = 2;
       if (vehicleType === 'motorcycle') modeCode = 1;
       else if (!useTolls) modeCode = 3;
       const encodedVehicleCount = modeCode * 1000 + vehicleCount;
 
-      const { error: tripError } = await supabase
-        .from('room_trips')
-        .upsert([{
-          room_id: createdRoom.id,
-          origin_latitude: origin.coords.latitude,
-          origin_longitude: origin.coords.longitude,
-          destination_latitude: destination.coords.latitude,
-          destination_longitude: destination.coords.longitude,
-          vehicle_count: encodedVehicleCount,
-        }], { onConflict: 'room_id' });
+      const data = await createRoom({
+        origin_name: origin.name || 'Titik awal',
+        origin_latitude: origin.coords.latitude,
+        origin_longitude: origin.coords.longitude,
+        destination_name: destination.name || 'Tujuan',
+        destination_latitude: destination.coords.latitude,
+        destination_longitude: destination.coords.longitude,
+        vehicle_type: vehicleType,
+        use_tolls: vehicleType === 'car' ? useTolls : null,
+        vehicle_count: vehicleCount,
+        route_distance_km: routeSummary?.distanceKm || null,
+        route_duration_min: routeSummary?.durationMin || null,
+      });
 
-      if (tripError) console.warn('Trip setup error:', tripError.message);
+      const createdRoom = data.room;
+      const generatedPin = createdRoom.room_pin;
 
       setCreateModalVisible(false);
       const savedCoords = origin.coords;
@@ -222,6 +215,7 @@ export default function HomeScreen() {
             onPress: () => {
               navigation.navigate('Map', {
                 roomId: createdRoom.id,
+                tourSessionId: data.session?.id,
                 pin: generatedPin,
                 role: 'leader',
                 origin: savedCoords,
@@ -258,33 +252,24 @@ export default function HomeScreen() {
     }
     setJoinLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('rooms')
-        .select('id, is_active')
-        .eq('room_pin', pinInput)
-        .eq('is_active', true)
-        .single();
-
-      if (error || !data) throw new Error('PIN tidak ditemukan atau room perjalanan sudah ditutup.');
-
-      const { data: tripData, error: tripError } = await supabase
-        .from('room_trips')
-        .select('origin_latitude, origin_longitude, destination_latitude, destination_longitude, vehicle_count')
-        .eq('room_id', data.id)
-        .maybeSingle();
+      const data = await joinRoom(pinInput);
+      const tripData = data.trip;
 
       let joinOrigin = null, joinDestination = null, joinedVehicleCount = null;
-      if (!tripError && tripData) {
+      if (tripData) {
         joinOrigin = { latitude: tripData.origin_latitude, longitude: tripData.origin_longitude };
         joinDestination = { latitude: tripData.destination_latitude, longitude: tripData.destination_longitude };
-        joinedVehicleCount = tripData.vehicle_count;
+        const modeCode = tripData.vehicle_type === 'motorcycle' ? 1 : (tripData.use_tolls === false ? 3 : 2);
+        joinedVehicleCount = modeCode * 1000 + tripData.vehicle_count;
       }
 
       setJoinModalVisible(false);
       setPinInput('');
       showToast('success', 'Berhasil Bergabung!', 'Kamu telah terhubung ke radar rombongan.');
       navigation.navigate('Map', {
-        roomId: data.id,
+        roomId: data.room.id,
+        tourSessionId: data.session?.id,
+        pin: data.room.room_pin,
         role: 'member',
         origin: joinOrigin,
         destination: joinDestination,
@@ -320,6 +305,7 @@ export default function HomeScreen() {
     }
     navigation.navigate('Map', {
       roomId: trip.id,
+      tourSessionId: trip.session?.id,
       pin: trip.room_pin,
       role: 'leader',
       origin: { latitude: td.origin_latitude, longitude: td.origin_longitude },
@@ -349,8 +335,7 @@ export default function HomeScreen() {
           style: 'danger',
           onPress: async () => {
             try {
-              if (signOut) await signOut();
-              else await supabase.auth.signOut();
+              await logout();
             } catch (err) {
               console.warn('Signout error:', err);
             }
@@ -419,7 +404,7 @@ export default function HomeScreen() {
       <HomeHeader
         displayName={displayName}
         profileInitial={profileInitial}
-        profilePhotoUrl={user?.user_metadata?.profile_photo_url || null}
+        profilePhotoUrl={user?.profile?.avatar_url || user?.user_metadata?.profile_photo_url || null}
         onProfilePress={() => navigation.navigate('Profile')}
       />
 

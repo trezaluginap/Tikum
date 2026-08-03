@@ -23,6 +23,7 @@ import {
 import MapView, { Marker, Polyline } from 'react-native-maps';
 
 import { supabase } from '../../supabase';
+import { getCurrentLocations, updateCurrentLocation } from '../api/locations.api';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
@@ -48,7 +49,7 @@ const mapDarkStyle = [
 
 export default function MapScreen({ route, navigation }) {
   const {
-    roomId, pin, origin, destination,
+    roomId, tourSessionId, pin, origin, destination,
     originName, destinationName,
     vehicleCount, role,
     preloadedRoute, preloadedSummary,
@@ -71,7 +72,7 @@ export default function MapScreen({ route, navigation }) {
   const { isConnected, isInternetReachable } = useNetworkStatus();
   const isOffline = !isConnected || !isInternetReachable;
 
-  const displayName = user?.user_metadata?.display_name || 'Pengguna';
+  const displayName = user?.profile?.display_name || user?.user_metadata?.display_name || 'Pengguna';
 
   // ── Decode routing mode from encoded vehicleCount ──
   const encodedVC = vehicleCount || 0;
@@ -144,35 +145,24 @@ export default function MapScreen({ route, navigation }) {
   // ── User Profiles Cache (Display Name & Photo URL) ──
   const [userProfiles, setUserProfiles] = useState({});
 
-  const fetchProfiles = async (userIds) => {
-    const uniqueIds = [...new Set(userIds.filter(Boolean))];
-    if (uniqueIds.length === 0) return;
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, display_name')
-        .in('id', uniqueIds);
-        
-      if (error) throw error;
-      
-      const newProfiles = {};
-      data.forEach(p => {
-        const parts = p.display_name ? p.display_name.split('||') : [];
-        newProfiles[p.id] = {
-          name: parts[0] || 'Member',
-          photoUrl: parts[1] || null
-        };
-      });
-      
-      setUserProfiles(prev => ({ ...prev, ...newProfiles }));
-    } catch (err) {
-      console.error('Error fetching user profiles:', err);
+  const cacheProfilesFromLocations = (locations) => {
+    const nextProfiles = {};
+    locations.forEach((location) => {
+      const profile = location.user?.profile;
+      if (!profile) return;
+      nextProfiles[location.user_id] = {
+        name: profile.display_name || 'Member',
+        photoUrl: profile.avatar_url || profile.avatar_path || null,
+      };
+    });
+    if (Object.keys(nextProfiles).length > 0) {
+      setUserProfiles(prev => ({ ...prev, ...nextProfiles }));
     }
   };
 
   const myProfile = {
-    name: displayName,
-    photoUrl: user?.user_metadata?.profile_photo_url || null
+    name: user?.profile?.display_name || displayName,
+    photoUrl: user?.profile?.avatar_url || user?.user_metadata?.profile_photo_url || null
   };
 
   // ── Init: preloaded route + region ──
@@ -213,46 +203,25 @@ export default function MapScreen({ route, navigation }) {
           setErrorMsg('Izin lokasi ditolak. Aktifkan di Pengaturan.');
           return;
         }
-        if (!roomId) return;
+        if (!roomId || !tourSessionId) return;
 
-        // Request background permission (for tracking when app is minimized)
         const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
         if (bgStatus === 'granted') {
-          await startBackgroundLocationTracking(roomId);
+          await startBackgroundLocationTracking(tourSessionId);
         } else {
           console.warn('Background location permission not granted - foreground only mode');
         }
 
-        // 1. Sync current user profile to public profiles table
-        const profileImage = user?.user_metadata?.profile_photo_url || '';
         try {
-          await supabase.from('profiles').upsert({
-            id: currentUserId,
-            display_name: `${displayName}||${profileImage}`,
-            updated_at: new Date(),
-          });
-        } catch (profileErr) {
-          console.error('Sync profile on map mount error:', profileErr);
-        }
-
-        // 2. Fetch initial locations in room
-        try {
-          const { data: locData, error: locError } = await supabase
-            .from('locations')
-            .select('user_id, latitude, longitude, heading, updated_at')
-            .eq('room_id', roomId);
-          
-          if (locError) throw locError;
-          if (locData && locData.length > 0) {
-            const friends = locData.filter(f => f.user_id !== currentUserId);
-            setFriendsLocations(friends);
-            
-            // Fetch profiles for these users
-            const ids = locData.map(l => l.user_id);
-            fetchProfiles(ids);
-          }
+          const data = await getCurrentLocations(tourSessionId);
+          const locations = data.locations || [];
+          setFriendsLocations(locations.filter(f => f.user_id !== currentUserId));
+          cacheProfilesFromLocations(locations);
         } catch (err) {
-          console.error('Error fetching initial locations:', err);
+          if (err.status === 401) setErrorMsg('Sesi login berakhir. Silakan login ulang.');
+          else if (err.status === 403) setErrorMsg('Kamu bukan anggota aktif sesi ini.');
+          else if (err.status === 422) setErrorMsg('Sesi perjalanan tidak aktif.');
+          else showToast('warning', 'Lokasi', 'Gagal memuat lokasi awal. Mencoba lanjut dengan GPS kamu.');
         }
 
         // 3. Get current position immediately with robust fallback chain
@@ -265,11 +234,13 @@ export default function MapScreen({ route, navigation }) {
             const { latitude, longitude, heading } = initialLoc.coords;
             setMyLocation({ latitude, longitude, heading });
 
-            await supabase.from('locations').upsert({
-              user_id: currentUserId,
-              room_id: roomId,
-              latitude, longitude, heading: heading || 0,
-              updated_at: new Date(),
+            await updateCurrentLocation(tourSessionId, {
+              latitude,
+              longitude,
+              heading: heading ?? null,
+              speed: initialLoc.coords.speed ?? null,
+              accuracy: initialLoc.coords.accuracy ?? null,
+              recorded_at: new Date(initialLoc.timestamp || Date.now()).toISOString(),
             });
           } else if (origin?.latitude && origin?.longitude) {
             setMyLocation({ latitude: origin.latitude, longitude: origin.longitude, heading: 0 });
@@ -285,18 +256,23 @@ export default function MapScreen({ route, navigation }) {
         locationWatcher = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, distanceInterval: 5 },
           async (location) => {
-            const { latitude, longitude, heading } = location.coords;
+            const { latitude, longitude, heading, speed, accuracy } = location.coords;
             setMyLocation({ latitude, longitude, heading });
 
             try {
-              await supabase.from('locations').upsert({
-                user_id: currentUserId,
-                room_id: roomId,
-                latitude, longitude, heading: heading || 0,
-                updated_at: new Date(),
+              await updateCurrentLocation(tourSessionId, {
+                latitude,
+                longitude,
+                heading: heading ?? null,
+                speed: speed ?? null,
+                accuracy: accuracy ?? null,
+                recorded_at: new Date(location.timestamp || Date.now()).toISOString(),
               });
             } catch (err) {
-              console.error('Location update error:', err);
+              if (err.status === 401) setErrorMsg('Sesi login berakhir. Silakan login ulang.');
+              else if (err.status === 403) setErrorMsg('Kamu bukan anggota aktif sesi ini.');
+              else if (err.status === 422) setErrorMsg('Sesi perjalanan tidak aktif.');
+              else console.error('Location update error:', err);
             }
           }
         );
@@ -310,14 +286,7 @@ export default function MapScreen({ route, navigation }) {
             } else if (payload.new?.room_id === roomId && payload.new?.user_id !== currentUserId) {
                const newLoc = payload.new;
                updateFriends(newLoc);
-               
-               // Fetch profile if not loaded yet
-               setUserProfiles(prev => {
-                 if (!prev[newLoc.user_id]) {
-                   fetchProfiles([newLoc.user_id]);
-                 }
-                 return prev;
-               });
+
             }
           })
           .subscribe();
@@ -511,9 +480,6 @@ export default function MapScreen({ route, navigation }) {
     const cleanupAndLeave = async () => {
       try {
         await stopBackgroundLocationTracking();
-        if (user?.id) {
-          await supabase.from('locations').delete().eq('user_id', user.id).eq('room_id', roomId);
-        }
         navigation.goBack();
       } catch (error) {
         console.error('Error leaving room:', error);
@@ -537,9 +503,6 @@ export default function MapScreen({ route, navigation }) {
             onPress: async () => {
               try {
                 await stopBackgroundLocationTracking();
-                if (user?.id) {
-                  await supabase.from('locations').delete().eq('user_id', user.id).eq('room_id', roomId);
-                }
                 await supabase
                   .from('rooms')
                   .update({ is_active: false })

@@ -6,9 +6,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
         unzip \
+        libjpeg-dev \
+        libpng-dev \
         libpq-dev \
+        libwebp-dev \
         libzip-dev \
-    && docker-php-ext-install pcntl pdo pdo_pgsql zip \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install gd pcntl pdo pdo_pgsql zip \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && apt-get clean \

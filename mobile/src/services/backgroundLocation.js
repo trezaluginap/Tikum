@@ -1,14 +1,11 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
-import { supabase } from '../../supabase';
+import { updateCurrentLocation } from '../api/locations.api';
 
 export const BACKGROUND_LOCATION_TASK = 'background-location-task';
+export const ACTIVE_TOUR_SESSION_ID_KEY = 'tikum_active_tour_session_id';
 
-/**
- * Background task handler — receives location updates even when app is backgrounded.
- * Upserts the user's latest position to Supabase `locations` table.
- */
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     console.error('[BG Location] Task error:', error.message);
@@ -18,42 +15,30 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (!data?.locations?.length) return;
 
   try {
-    // Get current session
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData?.session?.user?.id;
-    if (!userId) return;
-
-    // Get the stored roomId from the task body
-    const location = data.locations[0];
-    const { latitude, longitude, heading } = location.coords;
-
-    // We store the active roomId in AsyncStorage so bg task can read it
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-    const roomId = await AsyncStorage.getItem('tikum_active_room_id');
-    if (!roomId) return;
+    const sessionId = await AsyncStorage.getItem(ACTIVE_TOUR_SESSION_ID_KEY);
+    if (!sessionId) return;
 
-    await supabase.from('locations').upsert({
-      user_id: userId,
-      room_id: roomId,
+    const location = data.locations[0];
+    const { latitude, longitude, heading, speed, accuracy } = location.coords;
+
+    await updateCurrentLocation(sessionId, {
       latitude,
       longitude,
-      heading: heading || 0,
-      updated_at: new Date(),
+      heading: heading ?? null,
+      speed: speed ?? null,
+      accuracy: accuracy ?? null,
+      recorded_at: new Date(location.timestamp || Date.now()).toISOString(),
     });
   } catch (err) {
-    console.error('[BG Location] Upsert error:', err);
+    console.error('[BG Location] Update error:', err);
   }
 });
 
-/**
- * Start background location tracking.
- * Call this when entering a room.
- */
-export async function startBackgroundLocationTracking(roomId) {
+export async function startBackgroundLocationTracking(sessionId) {
   try {
-    // Store roomId for background task access
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-    await AsyncStorage.setItem('tikum_active_room_id', roomId);
+    await AsyncStorage.setItem(ACTIVE_TOUR_SESSION_ID_KEY, sessionId);
 
     const isTaskDefined = TaskManager.isTaskDefined(BACKGROUND_LOCATION_TASK);
     if (!isTaskDefined) {
@@ -63,15 +48,14 @@ export async function startBackgroundLocationTracking(roomId) {
 
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
     if (hasStarted) {
-      // Already running, just update the roomId
       return true;
     }
 
     await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
       accuracy: Location.Accuracy.High,
-      distanceInterval: 10, // Update every 10 meters
-      timeInterval: 5000, // At most every 5 seconds
-      showsBackgroundLocationIndicator: true, // iOS blue bar
+      distanceInterval: 10,
+      timeInterval: 5000,
+      showsBackgroundLocationIndicator: true,
       foregroundService: {
         notificationTitle: 'TiKum - Convoy Aktif',
         notificationBody: 'Lokasi kamu sedang dipantau oleh rombongan.',
@@ -88,10 +72,6 @@ export async function startBackgroundLocationTracking(roomId) {
   }
 }
 
-/**
- * Stop background location tracking.
- * Call this when leaving a room.
- */
 export async function stopBackgroundLocationTracking() {
   try {
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
@@ -100,7 +80,7 @@ export async function stopBackgroundLocationTracking() {
     }
 
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-    await AsyncStorage.removeItem('tikum_active_room_id');
+    await AsyncStorage.removeItem(ACTIVE_TOUR_SESSION_ID_KEY);
 
     console.log('[BG Location] Stopped successfully');
   } catch (err) {

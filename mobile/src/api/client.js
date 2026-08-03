@@ -18,11 +18,12 @@ export const request = async (path, options = {}) => {
     }
 
     const token = await getToken();
+    const isFormData = options.body instanceof FormData;
     const response = await fetch(`${apiUrl}${path}`, {
         ...options,
         headers: {
             Accept: 'application/json',
-            'Content-Type': 'application/json',
+            ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...options.headers,
         },
