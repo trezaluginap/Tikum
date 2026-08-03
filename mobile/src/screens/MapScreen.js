@@ -24,6 +24,7 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 
 import { supabase } from '../../supabase';
 import { getCurrentLocations, updateCurrentLocation } from '../api/locations.api';
+import { closeRoom, leaveRoom } from '../api/rooms.api';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
@@ -58,6 +59,7 @@ export default function MapScreen({ route, navigation }) {
 
   const { user } = useAuth();
   const mapRef = useRef(null);
+  const roomClosedHandledRef = useRef(false);
   const [myLocation, setMyLocation] = useState(null);
   const [friendsLocations, setFriendsLocations] = useState([]);
   const [routeCoords, setRouteCoords] = useState([]);
@@ -190,7 +192,7 @@ export default function MapScreen({ route, navigation }) {
   useEffect(() => {
     let echoClient;
     let echoChannel;
-    let subscriptionRooms;
+    let subscriptionSos;
     let locationWatcher;
     const currentUserId = user?.id;
 
@@ -199,6 +201,32 @@ export default function MapScreen({ route, navigation }) {
       const locations = data.locations || [];
       setFriendsLocations(locations.filter(f => f.user_id !== currentUserId));
       cacheProfilesFromLocations(locations);
+    };
+
+    const handleRoomClosed = async () => {
+      if (roomClosedHandledRef.current) return;
+      roomClosedHandledRef.current = true;
+      if (locationWatcher) locationWatcher.remove();
+      if (echoChannel) {
+        echoChannel.stopListening('.member.location.updated');
+        echoChannel.stopListening('.room.closed');
+      }
+      if (echoClient) {
+        echoClient.leave(`tour-session.${tourSessionId}`);
+        disconnectEcho(echoClient);
+      }
+      await stopBackgroundLocationTracking();
+      setFriendsLocations([]);
+      setDialogConfig({
+        visible: true,
+        type: 'warning',
+        icon: 'door-closed',
+        title: 'Room Ditutup',
+        message: 'Perjalanan telah diselesaikan oleh Leader.',
+        buttons: [
+          { text: 'KEMBALI KE BERANDA', style: 'primary', onPress: () => navigation.navigate('Home') },
+        ],
+      });
     };
 
     (async () => {
@@ -310,6 +338,9 @@ export default function MapScreen({ route, navigation }) {
                   photoUrl: payload.avatar_url || prev[payload.user_id]?.photoUrl || null,
                 },
               }));
+            })
+            .listen('.room.closed', () => {
+              handleRoomClosed().catch(() => null);
             });
 
           echoClient.connector?.pusher?.connection?.bind('connected', () => {
@@ -325,27 +356,8 @@ export default function MapScreen({ route, navigation }) {
           showToast('warning', 'Realtime', err?.message || 'Gagal mengaktifkan realtime lokasi.');
         }
 
-        // 6. Realtime subscription (Rooms - Auto Kick)
-        subscriptionRooms = supabase
-          .channel(`room:${roomId}:status`)
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, payload => {
-             if (payload.new && payload.new.is_active === false) {
-                setDialogConfig({
-                  visible: true,
-                  type: 'warning',
-                  icon: 'door-closed',
-                  title: 'Room Ditutup',
-                  message: 'Perjalanan telah diselesaikan oleh Leader.',
-                  buttons: [
-                    { text: 'KEMBALI KE BERANDA', style: 'primary', onPress: () => navigation.navigate('Home') }
-                  ]
-                });
-             }
-          })
-          .subscribe();
-
-        // 7. Realtime subscription (SOS Emergency Alerts)
-        const subscriptionSos = supabase
+        // 6. Realtime subscription (SOS Emergency Alerts)
+        subscriptionSos = supabase
           .channel(`room:${roomId}:sos`)
           .on('broadcast', { event: 'sos_alert' }, (payload) => {
             const data = payload?.payload;
@@ -372,12 +384,15 @@ export default function MapScreen({ route, navigation }) {
     })();
 
     return () => {
-      if (echoChannel) echoChannel.stopListening('.member.location.updated');
+      if (echoChannel) {
+        echoChannel.stopListening('.member.location.updated');
+        echoChannel.stopListening('.room.closed');
+      }
       if (echoClient) {
         echoClient.leave(`tour-session.${tourSessionId}`);
         disconnectEcho(echoClient);
       }
-      if (subscriptionRooms) supabase.removeChannel(subscriptionRooms);
+      if (subscriptionSos) supabase.removeChannel(subscriptionSos);
       if (locationWatcher) locationWatcher.remove();
       stopBackgroundLocationTracking();
     };
@@ -515,13 +530,18 @@ export default function MapScreen({ route, navigation }) {
   };
 
   const handleLeaveRoom = () => {
+    const cleanupLocal = async () => {
+      await stopBackgroundLocationTracking();
+      navigation.goBack();
+    };
+
     const cleanupAndLeave = async () => {
       try {
-        await stopBackgroundLocationTracking();
-        navigation.goBack();
+        await leaveRoom(roomId);
+        await cleanupLocal();
       } catch (error) {
         console.error('Error leaving room:', error);
-        navigation.goBack();
+        showToast('danger', 'Error', error?.message || 'Gagal keluar dari room.');
       }
     };
 
@@ -534,20 +554,19 @@ export default function MapScreen({ route, navigation }) {
         message: 'Pilih tindakan untuk sesi konvoi ini:',
         buttons: [
           { text: 'Batal', style: 'cancel' },
-          { text: 'Keluar Saja', style: 'secondary', onPress: cleanupAndLeave },
+          { text: 'Keluar Saja', style: 'secondary', onPress: cleanupLocal },
           {
             text: 'Bubarkan Sesi',
             style: 'destructive',
             onPress: async () => {
               try {
+                roomClosedHandledRef.current = true;
+                await closeRoom(roomId);
                 await stopBackgroundLocationTracking();
-                await supabase
-                  .from('rooms')
-                  .update({ is_active: false })
-                  .eq('id', roomId);
                 navigation.goBack();
               } catch (error) {
-                showToast('danger', 'Error', 'Gagal membubarkan sesi.');
+                roomClosedHandledRef.current = false;
+                showToast('danger', 'Error', error?.message || 'Gagal membubarkan sesi.');
               }
             },
           },

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\RoomClosed;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\JoinRoomRequest;
 use App\Http\Requests\StoreRoomRequest;
@@ -188,15 +189,21 @@ class RoomController extends Controller
             abort(403, 'Hanya host yang bisa menutup room.');
         }
 
-        DB::transaction(function () use ($room) {
+        [$room, $session] = DB::transaction(function () use ($request, $room) {
             $now = now();
+            $session = $room->activeSession()->firstOrFail();
+
             $room->update(['status' => 'closed', 'closed_at' => $now]);
-            $room->activeSession?->update(['status' => 'finished', 'finished_at' => $now]);
+            $session->update(['status' => 'finished', 'finished_at' => $now]);
+
+            return [$room->refresh(), $session->refresh()];
         });
+
+        event(new RoomClosed($room, $session, $request->user()->id));
 
         return response()->json([
             'message' => 'Room closed successfully',
-            'room' => new RoomResource($room->refresh()->load(['trip', 'members.user.profile', 'activeSession.members'])),
+            'room' => new RoomResource($room->load(['trip', 'members.user.profile', 'activeSession.members'])),
         ]);
     }
 

@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Events\RoomClosed;
 use App\Http\Controllers\Api\RoomController;
 use App\Models\Room;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
@@ -152,6 +154,71 @@ class RoomApiTest extends TestCase
         $this->getJson('/api/rooms/active')->assertOk()->assertJsonCount(1, 'rooms');
         $this->postJson("/api/rooms/{$room->id}/close")->assertOk();
         $this->getJson('/api/rooms/active')->assertOk()->assertJsonCount(0, 'rooms');
+    }
+
+    public function test_room_closed_event_is_dispatched_after_database_update(): void
+    {
+        [$room, $host] = $this->createRoomWithHost();
+
+        Event::fake([RoomClosed::class]);
+
+        Sanctum::actingAs($host);
+        $this->postJson("/api/rooms/{$room->id}/close")->assertOk();
+
+        Event::assertDispatched(RoomClosed::class, function (RoomClosed $event) use ($room, $host) {
+            return $event->room->status === 'closed'
+                && $event->room->closed_at !== null
+                && $event->session->status === 'finished'
+                && $event->session->finished_at !== null
+                && $event->closedByUserId === $host->id;
+        });
+    }
+
+    public function test_room_closed_event_payload_is_correct(): void
+    {
+        [$room, $host] = $this->createRoomWithHost();
+
+        Event::fake([RoomClosed::class]);
+
+        Sanctum::actingAs($host);
+        $this->postJson("/api/rooms/{$room->id}/close")->assertOk();
+
+        Event::assertDispatched(RoomClosed::class, function (RoomClosed $event) use ($room) {
+            $payload = $event->broadcastWith();
+            $channelName = $event->broadcastOn()[0]->name;
+
+            return $event->broadcastAs() === 'room.closed'
+                && str_contains($channelName, 'tour-session.')
+                && $payload['room_id'] === $room->id
+                && isset($payload['session_id'])
+                && isset($payload['closed_at'])
+                && $payload['session_status'] === 'finished';
+        });
+    }
+
+    public function test_channel_auth_denied_after_room_closed(): void
+    {
+        [$room, $host] = $this->createRoomWithHost();
+        $member = $this->user('member@example.com');
+
+        Sanctum::actingAs($member);
+        $joinResponse = $this->postJson('/api/rooms/join', ['room_pin' => $room->room_pin])->assertOk();
+        $sessionId = $joinResponse->json('session.id');
+
+        $authResponse = $this->postJson('/api/broadcasting/auth', [
+            'socket_id'    => '123.456',
+            'channel_name' => "private-tour-session.{$sessionId}",
+        ]);
+        $authResponse->assertOk();
+
+        Sanctum::actingAs($host);
+        $this->postJson("/api/rooms/{$room->id}/close")->assertOk();
+
+        Sanctum::actingAs($member);
+        $this->postJson('/api/broadcasting/auth', [
+            'socket_id'    => '123.456',
+            'channel_name' => "private-tour-session.{$sessionId}",
+        ])->assertForbidden();
     }
 
     private function createRoomWithHost(): array
