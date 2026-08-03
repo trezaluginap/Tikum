@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoomController;
+use App\Models\TourSession;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -17,6 +19,31 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/broadcasting/auth', function (Request $request) {
+        $data = $request->validate([
+            'socket_id' => ['required', 'string'],
+            'channel_name' => ['required', 'string'],
+        ]);
+
+        $prefix = 'private-tour-session.';
+        abort_unless(str_starts_with($data['channel_name'], $prefix), 403);
+
+        $sessionId = substr($data['channel_name'], strlen($prefix));
+        $isMember = TourSession::whereKey($sessionId)
+            ->where('status', 'active')
+            ->whereHas('members', fn ($query) => $query
+                ->where('user_id', $request->user()->id)
+                ->where('status', 'active'))
+            ->exists();
+
+        abort_unless($isMember, 403);
+
+        $key = config('broadcasting.connections.reverb.key');
+        $secret = config('broadcasting.connections.reverb.secret');
+        $signature = hash_hmac('sha256', $data['socket_id'].':'.$data['channel_name'], $secret);
+
+        return response()->json(['auth' => $key.':'.$signature]);
+    });
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/profile', [ProfileController::class, 'show']);

@@ -27,6 +27,7 @@ import { getCurrentLocations, updateCurrentLocation } from '../api/locations.api
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
+import { createEcho, disconnectEcho } from '../realtime/echo';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import {
   startBackgroundLocationTracking,
@@ -187,10 +188,18 @@ export default function MapScreen({ route, navigation }) {
 
   // ── Sync profile, fetch initial locations/profiles, track location + Supabase realtime ──
   useEffect(() => {
-    let subscriptionLocations;
+    let echoClient;
+    let echoChannel;
     let subscriptionRooms;
     let locationWatcher;
     const currentUserId = user?.id;
+
+    const syncCurrentLocations = async () => {
+      const data = await getCurrentLocations(tourSessionId);
+      const locations = data.locations || [];
+      setFriendsLocations(locations.filter(f => f.user_id !== currentUserId));
+      cacheProfilesFromLocations(locations);
+    };
 
     (async () => {
       try {
@@ -213,10 +222,7 @@ export default function MapScreen({ route, navigation }) {
         }
 
         try {
-          const data = await getCurrentLocations(tourSessionId);
-          const locations = data.locations || [];
-          setFriendsLocations(locations.filter(f => f.user_id !== currentUserId));
-          cacheProfilesFromLocations(locations);
+          await syncCurrentLocations();
         } catch (err) {
           if (err.status === 401) setErrorMsg('Sesi login berakhir. Silakan login ulang.');
           else if (err.status === 403) setErrorMsg('Kamu bukan anggota aktif sesi ini.');
@@ -277,19 +283,47 @@ export default function MapScreen({ route, navigation }) {
           }
         );
 
-        // 5. Realtime subscription (Locations)
-        subscriptionLocations = supabase
-          .channel(`room:${roomId}:locations`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, payload => {
-            if (payload.event === 'DELETE') {
-               setFriendsLocations(prev => prev.filter(f => f.user_id !== payload.old?.user_id));
-            } else if (payload.new?.room_id === roomId && payload.new?.user_id !== currentUserId) {
-               const newLoc = payload.new;
-               updateFriends(newLoc);
+        // 5. Realtime subscription (Locations via Reverb)
+        try {
+          echoClient = createEcho();
+          echoChannel = echoClient.private(`tour-session.${tourSessionId}`)
+            .listen('.member.location.updated', (payload) => {
+              if (!payload?.user_id || payload.user_id === currentUserId) return;
 
-            }
-          })
-          .subscribe();
+              updateFriends({
+                user_id: payload.user_id,
+                latitude: payload.latitude,
+                longitude: payload.longitude,
+                heading: payload.heading,
+                speed: payload.speed,
+                accuracy: payload.accuracy,
+                recorded_at: payload.recorded_at,
+                received_at: payload.received_at,
+                updated_at: payload.received_at,
+                is_stale: payload.is_stale,
+              });
+
+              setUserProfiles(prev => ({
+                ...prev,
+                [payload.user_id]: {
+                  name: payload.display_name || prev[payload.user_id]?.name || 'Member',
+                  photoUrl: payload.avatar_url || prev[payload.user_id]?.photoUrl || null,
+                },
+              }));
+            });
+
+          echoClient.connector?.pusher?.connection?.bind('connected', () => {
+            syncCurrentLocations().catch(() => null);
+          });
+          echoClient.connector?.pusher?.connection?.bind('unavailable', () => {
+            showToast('warning', 'Realtime', 'Koneksi realtime terputus. Data akan disinkronkan ulang saat tersambung.');
+          });
+          echoClient.connector?.pusher?.connection?.bind('error', () => {
+            showToast('warning', 'Realtime', 'Realtime lokasi bermasalah. Lokasi awal tetap memakai API.');
+          });
+        } catch (err) {
+          showToast('warning', 'Realtime', err?.message || 'Gagal mengaktifkan realtime lokasi.');
+        }
 
         // 6. Realtime subscription (Rooms - Auto Kick)
         subscriptionRooms = supabase
@@ -338,7 +372,11 @@ export default function MapScreen({ route, navigation }) {
     })();
 
     return () => {
-      if (subscriptionLocations) supabase.removeChannel(subscriptionLocations);
+      if (echoChannel) echoChannel.stopListening('.member.location.updated');
+      if (echoClient) {
+        echoClient.leave(`tour-session.${tourSessionId}`);
+        disconnectEcho(echoClient);
+      }
       if (subscriptionRooms) supabase.removeChannel(subscriptionRooms);
       if (locationWatcher) locationWatcher.remove();
       stopBackgroundLocationTracking();

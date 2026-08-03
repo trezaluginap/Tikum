@@ -81,5 +81,9 @@ export default ({ config }) => ({
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
     apiUrl: process.env.EXPO_PUBLIC_API_URL,
+    reverbHost: process.env.EXPO_PUBLIC_REVERB_HOST,
+    reverbPort: process.env.EXPO_PUBLIC_REVERB_PORT,
+    reverbScheme: process.env.EXPO_PUBLIC_REVERB_SCHEME,
+    reverbAppKey: process.env.EXPO_PUBLIC_REVERB_APP_KEY,
   },
 });
