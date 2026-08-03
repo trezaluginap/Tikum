@@ -22,9 +22,9 @@ import {
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 
-import { supabase } from '../../supabase';
 import { getCurrentLocations, updateCurrentLocation } from '../api/locations.api';
 import { closeRoom, leaveRoom } from '../api/rooms.api';
+import { resolveSos, triggerSos } from '../api/sos.api';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
@@ -134,6 +134,7 @@ export default function MapScreen({ route, navigation }) {
   const [isAutoFollow, setIsAutoFollow] = useState(true);
   const [maneuvers, setManeuvers] = useState([]);
   const [sosActive, setSosActive] = useState(false);
+  const [activeSosAlertId, setActiveSosAlertId] = useState(null);
   const [sosUsers, setSosUsers] = useState({}); // { [userId]: true }
 
   // ── Custom UI Notifications & Dialogs ──
@@ -192,7 +193,6 @@ export default function MapScreen({ route, navigation }) {
   useEffect(() => {
     let echoClient;
     let echoChannel;
-    let subscriptionSos;
     let locationWatcher;
     const currentUserId = user?.id;
 
@@ -210,6 +210,8 @@ export default function MapScreen({ route, navigation }) {
       if (echoChannel) {
         echoChannel.stopListening('.member.location.updated');
         echoChannel.stopListening('.room.closed');
+        echoChannel.stopListening('.sos.alert.triggered');
+        echoChannel.stopListening('.sos.alert.resolved');
       }
       if (echoClient) {
         echoClient.leave(`tour-session.${tourSessionId}`);
@@ -341,6 +343,31 @@ export default function MapScreen({ route, navigation }) {
             })
             .listen('.room.closed', () => {
               handleRoomClosed().catch(() => null);
+            })
+            .listen('.sos.alert.triggered', (payload) => {
+              if (!payload?.user_id || payload.user_id === currentUserId) return;
+              setSosUsers(prev => ({ ...prev, [payload.user_id]: payload.sos_alert_id || true }));
+              setUserProfiles(prev => ({
+                ...prev,
+                [payload.user_id]: {
+                  name: payload.display_name || prev[payload.user_id]?.name || 'Member',
+                  photoUrl: payload.avatar_url || prev[payload.user_id]?.photoUrl || null,
+                },
+              }));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              showToast('danger', '🚨 SOS DARURAT CONVOY!', `${payload.display_name || 'Member'} memerlukan bantuan darurat! Cek posisi di radar.`);
+            })
+            .listen('.sos.alert.resolved', (payload) => {
+              if (!payload?.user_id) return;
+              setSosUsers(prev => {
+                const copy = { ...prev };
+                delete copy[payload.user_id];
+                return copy;
+              });
+              if (payload.user_id === currentUserId) {
+                setSosActive(false);
+                setActiveSosAlertId(null);
+              }
             });
 
           echoClient.connector?.pusher?.connection?.bind('connected', () => {
@@ -356,26 +383,6 @@ export default function MapScreen({ route, navigation }) {
           showToast('warning', 'Realtime', err?.message || 'Gagal mengaktifkan realtime lokasi.');
         }
 
-        // 6. Realtime subscription (SOS Emergency Alerts)
-        subscriptionSos = supabase
-          .channel(`room:${roomId}:sos`)
-          .on('broadcast', { event: 'sos_alert' }, (payload) => {
-            const data = payload?.payload;
-            if (!data?.userId || data.userId === currentUserId) return;
-
-            if (data.isSos) {
-              setSosUsers((prev) => ({ ...prev, [data.userId]: true }));
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-              showToast('danger', '🚨 SOS DARURAT CONVOY!', `${data.userName || 'Member'} memerlukan bantuan darurat! Cek posisi di radar.`);
-            } else {
-              setSosUsers((prev) => {
-                const copy = { ...prev };
-                delete copy[data.userId];
-                return copy;
-              });
-            }
-          })
-          .subscribe();
 
       } catch (error) {
         console.error('Map init error:', error);
@@ -387,12 +394,13 @@ export default function MapScreen({ route, navigation }) {
       if (echoChannel) {
         echoChannel.stopListening('.member.location.updated');
         echoChannel.stopListening('.room.closed');
+        echoChannel.stopListening('.sos.alert.triggered');
+        echoChannel.stopListening('.sos.alert.resolved');
       }
       if (echoClient) {
         echoClient.leave(`tour-session.${tourSessionId}`);
         disconnectEcho(echoClient);
       }
-      if (subscriptionSos) supabase.removeChannel(subscriptionSos);
       if (locationWatcher) locationWatcher.remove();
       stopBackgroundLocationTracking();
     };
@@ -672,28 +680,35 @@ export default function MapScreen({ route, navigation }) {
             text: 'YA, KIRIM SOS',
             style: 'destructive',
             onPress: async () => {
-              setSosActive(true);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-              const channel = supabase.channel(`room:${roomId}:sos`);
-              await channel.send({
-                type: 'broadcast',
-                event: 'sos_alert',
-                payload: { userId: user?.id, isSos: true, userName: displayName },
-              });
-              showToast('danger', 'SOS AKTIF', 'Sinyal SOS telah dikirimkan ke rombongan.');
+              try {
+                const response = await triggerSos(tourSessionId, {
+                  message: 'Butuh bantuan darurat',
+                  latitude: myLocation?.latitude ?? null,
+                  longitude: myLocation?.longitude ?? null,
+                });
+                setActiveSosAlertId(response.sos_alert?.id || null);
+                setSosActive(true);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                showToast('danger', 'SOS AKTIF', 'Sinyal SOS telah dikirimkan ke rombongan.');
+              } catch (error) {
+                showToast('danger', 'Error', error?.message || 'Gagal mengirim SOS.');
+              }
             },
           },
         ],
       });
-    } else {
-      setSosActive(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      supabase.channel(`room:${roomId}:sos`).send({
-        type: 'broadcast',
-        event: 'sos_alert',
-        payload: { userId: user?.id, isSos: false, userName: displayName },
-      });
-      showToast('success', 'SOS NONAKTIF', 'Status darurat telah diminimalkan.');
+    } else if (activeSosAlertId) {
+      (async () => {
+        try {
+          await resolveSos(tourSessionId, activeSosAlertId);
+          setSosActive(false);
+          setActiveSosAlertId(null);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          showToast('success', 'SOS NONAKTIF', 'Status darurat telah diselesaikan.');
+        } catch (error) {
+          showToast('danger', 'Error', error?.message || 'Gagal menyelesaikan SOS.');
+        }
+      })();
     }
   };
 

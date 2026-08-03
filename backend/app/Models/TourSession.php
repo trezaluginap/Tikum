@@ -52,4 +52,9 @@ class TourSession extends Model
     {
         return $this->hasMany(LocationHistory::class);
     }
+
+    public function sosAlerts(): HasMany
+    {
+        return $this->hasMany(SosAlert::class);
+    }
 }

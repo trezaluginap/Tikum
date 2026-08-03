@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoomController;
+use App\Http\Controllers\Api\SosController;
 use App\Models\TourSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -59,4 +60,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rooms/{room}/trip', [RoomController::class, 'trip']);
     Route::get('/tour-sessions/{session}/locations/current', [LocationController::class, 'current']);
     Route::post('/tour-sessions/{session}/locations/current', [LocationController::class, 'update']);
+    Route::post('/tour-sessions/{session}/sos', [SosController::class, 'trigger']);
+    Route::post('/tour-sessions/{session}/sos/{sosAlert}/resolve', [SosController::class, 'resolve']);
 });
