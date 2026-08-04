@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\HistoryController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoomController;
@@ -62,4 +63,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tour-sessions/{session}/locations/current', [LocationController::class, 'update']);
     Route::post('/tour-sessions/{session}/sos', [SosController::class, 'trigger']);
     Route::post('/tour-sessions/{session}/sos/{sosAlert}/resolve', [SosController::class, 'resolve']);
+    Route::get('/history/trips', [HistoryController::class, 'index']);
+    Route::get('/history/trips/{session}', [HistoryController::class, 'show']);
 });

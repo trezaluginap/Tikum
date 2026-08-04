@@ -10,75 +10,41 @@ import {
   View,
 } from 'react-native';
 
-import { supabase } from '../../../supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { getTripHistory } from '../../api/history.api';
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
 
-/**
- * HistoryModal — slide-up modal showing completed trips the user hosted.
- * 
- * Props:
- *   visible: boolean
- *   onClose: () => void
- */
 export default function HistoryModal({ visible, onClose }) {
-  const { user } = useAuth();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState(null);
 
   useEffect(() => {
-    if (!visible || !user?.id) return;
-    let cancelled = false;
+    if (!visible) return;
 
-    (async () => {
-      setLoading(true);
-      try {
-        // Fetch rooms hosted by user that are no longer active
-        const { data: rooms, error: roomsErr } = await supabase
-          .from('rooms')
-          .select('id, room_pin, created_at')
-          .eq('host_id', user.id)
-          .eq('is_active', false)
-          .order('created_at', { ascending: false })
-          .limit(30);
+    setTrips([]);
+    setPage(1);
+    loadHistory(1, true);
+  }, [visible]);
 
-        if (roomsErr) throw roomsErr;
-        if (cancelled || !rooms?.length) {
-          setTrips([]);
-          setLoading(false);
-          return;
-        }
+  const loadHistory = async (nextPage = 1, reset = false) => {
+    setLoading(true);
+    setError('');
 
-        // Fetch associated trip details
-        const roomIds = rooms.map(r => r.id);
-        const { data: tripData, error: tripErr } = await supabase
-          .from('room_trips')
-          .select('room_id, origin_latitude, origin_longitude, destination_latitude, destination_longitude, vehicle_count, created_at')
-          .in('room_id', roomIds);
+    try {
+      const data = await getTripHistory({ page: nextPage, per_page: 10, role: 'all' });
+      const nextTrips = data.trips || [];
 
-        if (tripErr) throw tripErr;
-
-        // Merge data
-        const tripMap = {};
-        (tripData || []).forEach(t => { tripMap[t.room_id] = t; });
-
-        const merged = rooms.map(room => ({
-          id: room.id,
-          pin: room.room_pin,
-          createdAt: room.created_at,
-          trip: tripMap[room.id] || null,
-        }));
-
-        if (!cancelled) setTrips(merged);
-      } catch (err) {
-        console.error('HistoryModal fetch error:', err);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [visible, user?.id]);
+      setTrips(previous => (reset ? nextTrips : [...previous, ...nextTrips]));
+      setMeta(data.meta || null);
+      setPage(nextPage);
+    } catch (err) {
+      setError(err?.message || 'Gagal memuat riwayat perjalanan.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
@@ -91,9 +57,15 @@ export default function HistoryModal({ visible, onClose }) {
     return `${day}/${month}/${year} ${hours}:${mins}`;
   };
 
-  const formatCoord = (lat, lng) => {
-    if (!lat || !lng) return 'Tidak tersedia';
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  const formatCoord = (location) => {
+    if (!location?.latitude || !location?.longitude) return 'Tidak tersedia';
+    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+  };
+
+  const formatVehicle = (item) => {
+    const count = item.vehicle_count || 0;
+    const vehicle = item.vehicle_type === 'motorcycle' ? 'motor' : 'mobil';
+    return `${count} ${vehicle}`;
   };
 
   const renderTrip = ({ item, index }) => (
@@ -103,8 +75,8 @@ export default function HistoryModal({ visible, onClose }) {
           <Text style={styles.tripIndexText}>{index + 1}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.tripDate}>{formatDate(item.createdAt)}</Text>
-          <Text style={styles.tripPin}>PIN: {item.pin}</Text>
+          <Text style={styles.tripDate}>{formatDate(item.finished_at || item.started_at)}</Text>
+          <Text style={styles.tripPin}>PIN: {item.room_pin}</Text>
         </View>
         <View style={styles.tripStatusBadge}>
           <MaterialCommunityIcons name="check-circle" size={12} color={colors.success} />
@@ -112,41 +84,53 @@ export default function HistoryModal({ visible, onClose }) {
         </View>
       </View>
 
-      {item.trip && (
-        <View style={styles.tripBody}>
-          <View style={styles.tripRoute}>
-            <View style={styles.tripRouteRow}>
-              <View style={[styles.tripRouteDot, { backgroundColor: colors.success }]} />
-              <Text style={styles.tripRouteLabel}>Asal</Text>
-              <Text style={styles.tripRouteCoord}>
-                {formatCoord(item.trip.origin_latitude, item.trip.origin_longitude)}
-              </Text>
-            </View>
-            <View style={styles.tripRouteLine} />
-            <View style={styles.tripRouteRow}>
-              <View style={[styles.tripRouteDot, { backgroundColor: colors.danger }]} />
-              <Text style={styles.tripRouteLabel}>Tujuan</Text>
-              <Text style={styles.tripRouteCoord}>
-                {formatCoord(item.trip.destination_latitude, item.trip.destination_longitude)}
-              </Text>
-            </View>
+      <View style={styles.tripBody}>
+        <View style={styles.tripRoute}>
+          <View style={styles.tripRouteRow}>
+            <View style={[styles.tripRouteDot, { backgroundColor: colors.success }]} />
+            <Text style={styles.tripRouteLabel}>Asal</Text>
+            <Text style={styles.tripRouteCoord}>{item.origin?.name || formatCoord(item.origin)}</Text>
           </View>
-          {item.trip.vehicle_count > 0 && (
-            <View style={styles.tripVehicleBadge}>
-              <MaterialCommunityIcons name="car-multiple" size={12} color={colors.primaryMuted} />
-              <Text style={styles.tripVehicleText}>{item.trip.vehicle_count} kendaraan</Text>
-            </View>
-          )}
+          <View style={styles.tripRouteLine} />
+          <View style={styles.tripRouteRow}>
+            <View style={[styles.tripRouteDot, { backgroundColor: colors.danger }]} />
+            <Text style={styles.tripRouteLabel}>Tujuan</Text>
+            <Text style={styles.tripRouteCoord}>{item.destination?.name || formatCoord(item.destination)}</Text>
+          </View>
         </View>
-      )}
+        {item.vehicle_count > 0 && (
+          <View style={styles.tripVehicleBadge}>
+            <MaterialCommunityIcons name="car-multiple" size={12} color={colors.primaryMuted} />
+            <Text style={styles.tripVehicleText}>{formatVehicle(item)}</Text>
+          </View>
+        )}
+      </View>
     </View>
   );
+
+  const renderFooter = () => {
+    if (!meta?.has_more) return null;
+
+    return (
+      <TouchableOpacity
+        style={styles.loadMoreBtn}
+        onPress={() => loadHistory(page + 1)}
+        disabled={loading}
+        activeOpacity={0.8}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : (
+          <Text style={styles.loadMoreText}>Muat Lagi</Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
       <View style={styles.overlay}>
         <View style={styles.container}>
-          {/* Header */}
           <View style={styles.header}>
             <View style={styles.handle} />
             <View style={styles.headerRow}>
@@ -157,11 +141,19 @@ export default function HistoryModal({ visible, onClose }) {
             </View>
           </View>
 
-          {/* Body */}
-          {loading ? (
+          {loading && trips.length === 0 ? (
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="large" color={colors.primary} />
               <Text style={styles.emptyText}>Memuat riwayat...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={48} color={colors.danger} />
+              <Text style={styles.emptyTitle}>Gagal Memuat Riwayat</Text>
+              <Text style={styles.emptyText}>{error}</Text>
+              <TouchableOpacity style={styles.loadMoreBtn} onPress={() => loadHistory(1, true)} activeOpacity={0.8}>
+                <Text style={styles.loadMoreText}>Coba Lagi</Text>
+              </TouchableOpacity>
             </View>
           ) : trips.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -172,10 +164,11 @@ export default function HistoryModal({ visible, onClose }) {
           ) : (
             <FlatList
               data={trips}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item) => item.session_id}
               renderItem={renderTrip}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
+              ListFooterComponent={renderFooter}
             />
           )}
         </View>
@@ -227,15 +220,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardElevated,
     justifyContent: 'center', alignItems: 'center',
   },
-
-  // List
   listContent: {
     padding: spacing.xl,
     paddingBottom: spacing.xxl + 16,
     gap: spacing.md,
   },
-
-  // Trip Card
   tripCard: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,
@@ -283,8 +272,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     color: colors.success,
   },
-
-  // Trip Body
   tripBody: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
@@ -337,8 +324,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.primaryMuted,
   },
-
-  // Empty State
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -356,5 +341,18 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     paddingHorizontal: spacing.xl,
+  },
+  loadMoreBtn: {
+    alignSelf: 'center',
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(99,102,241,0.12)',
+  },
+  loadMoreText: {
+    fontSize: fontSize.sm,
+    fontFamily: fonts.semiBold,
+    color: colors.primary,
   },
 });
