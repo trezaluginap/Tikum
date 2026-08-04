@@ -19,15 +19,39 @@ export const request = async (path, options = {}) => {
 
     const token = await getToken();
     const isFormData = options.body instanceof FormData;
-    const response = await fetch(`${apiUrl}${path}`, {
-        ...options,
-        headers: {
-            Accept: 'application/json',
-            ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...options.headers,
-        },
+    const url = `${apiUrl}${path}`;
+
+    console.log('[API DEBUG]', {
+        baseUrl: apiUrl,
+        endpoint: path,
+        method: options.method || 'GET',
+        url,
     });
+
+    let response;
+
+    try {
+        response = await fetch(url, {
+            ...options,
+            headers: {
+                Accept: 'application/json',
+                ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...options.headers,
+            },
+        });
+    } catch (error) {
+        console.log('[API DEBUG ERROR]', {
+            baseUrl: apiUrl,
+            endpoint: path,
+            method: options.method || 'GET',
+            name: error?.name,
+            message: error?.message,
+            cause: error?.cause,
+        });
+
+        throw error;
+    }
 
     const data = await response.json().catch(() => ({}));
 
