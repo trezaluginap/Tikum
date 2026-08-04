@@ -25,6 +25,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import MapScreen from './src/screens/MapScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import RegisterScreens from './src/screens/RegisterScreens';
+import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,6 +37,15 @@ const darkNavTheme = {
     ...DarkTheme.colors,
     background: '#0F172A',
     card: '#0F172A',
+  },
+};
+
+const linking = {
+  prefixes: ['tikum://'],
+  config: {
+    screens: {
+      ResetPassword: 'reset-password',
+    },
   },
 };
 
@@ -51,7 +61,7 @@ const RootNavigator = () => {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={darkNavTheme}>
+    <NavigationContainer ref={navigationRef} theme={darkNavTheme} linking={linking}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
@@ -71,6 +81,7 @@ const RootNavigator = () => {
             <Stack.Screen name="Register" component={RegisterScreens} />
           </Stack.Group>
         )}
+        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

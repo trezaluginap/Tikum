@@ -85,5 +85,6 @@ export default ({ config }) => ({
     reverbPort: process.env.EXPO_PUBLIC_REVERB_PORT,
     reverbScheme: process.env.EXPO_PUBLIC_REVERB_SCHEME,
     reverbAppKey: process.env.EXPO_PUBLIC_REVERB_APP_KEY,
+    resetPasswordUrl: 'tikum://reset-password',
   },
 });

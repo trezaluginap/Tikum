@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-import { supabase } from '../../supabase';
+import { forgotPassword } from '../api/auth.api';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 
 /**
@@ -35,12 +35,7 @@ export default function ForgotPasswordModal({ visible, onClose }) {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo: 'tikum://reset-password',
-      });
-
-      if (error) throw error;
-
+      await forgotPassword({ email: trimmedEmail });
       setSent(true);
     } catch (error) {
       Alert.alert('Gagal', error.message || 'Terjadi kesalahan saat mengirim email reset.');

@@ -41,4 +41,24 @@ export const logout = async () => {
     }
 };
 
+export const forgotPassword = ({ email }) => request('/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+});
+
+export const resetPassword = async ({ email, token, password, passwordConfirmation }) => {
+    const data = await request('/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+            email,
+            token,
+            password,
+            password_confirmation: passwordConfirmation,
+        }),
+    });
+
+    await deleteToken();
+    return data;
+};
+
 export const getCurrentUser = () => request('/me');
