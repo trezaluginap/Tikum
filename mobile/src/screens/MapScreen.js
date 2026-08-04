@@ -1488,53 +1488,6 @@ const styles = StyleSheet.create({
   },
   errorText: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.danger, flex: 1 },
 
-  // ── Turn-by-Turn Guidance Banner ──
-  tbtBanner: {
-    position: 'absolute',
-    top: 105,
-    left: spacing.lg,
-    right: spacing.lg,
-    backgroundColor: 'rgba(15, 23, 42, 0.94)',
-    borderRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.4)',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
-    zIndex: 35,
-  },
-  tbtIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tbtTextContainer: {
-    flex: 1,
-  },
-  tbtDistance: {
-    fontSize: fontSize.lg,
-    fontFamily: fonts.black,
-    color: colors.primary,
-    letterSpacing: -0.5,
-  },
-  tbtInstruction: {
-    fontSize: fontSize.sm,
-    fontFamily: fonts.semiBold,
-    color: colors.textPrimary,
-    marginTop: 2,
-    lineHeight: 18,
-  },
-
   // ── Offline Banner ──
   offlineBanner: {
     position: 'absolute',
