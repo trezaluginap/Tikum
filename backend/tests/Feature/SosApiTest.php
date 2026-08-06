@@ -6,7 +6,6 @@ use App\Events\SosAlertResolved;
 use App\Events\SosAlertTriggered;
 use App\Models\Room;
 use App\Models\SosAlert;
-use App\Models\TourSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -79,8 +78,7 @@ class SosApiTest extends TestCase
 
         $this->postJson("/api/tour-sessions/{$session->id}/sos", $this->sosPayload())->assertCreated();
 
-        Event::assertDispatched(SosAlertTriggered::class, fn (SosAlertTriggered $event) =>
-            $event->sosAlert->tour_session_id === $session->id
+        Event::assertDispatched(SosAlertTriggered::class, fn (SosAlertTriggered $event) => $event->sosAlert->tour_session_id === $session->id
                 && $event->sosAlert->user_id === $host->id
                 && $event->sosAlert->status === 'active'
         );
@@ -136,8 +134,7 @@ class SosApiTest extends TestCase
 
         $this->postJson("/api/tour-sessions/{$session->id}/sos/{$sosId}/resolve")->assertOk();
 
-        Event::assertDispatched(SosAlertResolved::class, fn (SosAlertResolved $event) =>
-            $event->sosAlert->id === $sosId
+        Event::assertDispatched(SosAlertResolved::class, fn (SosAlertResolved $event) => $event->sosAlert->id === $sosId
                 && $event->sosAlert->status === 'resolved'
                 && $event->sosAlert->resolved_by_user_id === $host->id
         );

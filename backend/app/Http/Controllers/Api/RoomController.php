@@ -9,7 +9,9 @@ use App\Http\Requests\StoreRoomRequest;
 use App\Http\Resources\RoomMemberResource;
 use App\Http\Resources\RoomResource;
 use App\Http\Resources\RoomTripResource;
+use App\Http\Resources\TourSessionResource;
 use App\Models\Room;
+use App\Models\RoomMember;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -75,7 +77,7 @@ class RoomController extends Controller
             'message' => 'Room created successfully',
             'room' => new RoomResource($room),
             'trip' => new RoomTripResource($room->trip),
-            'session' => $room->activeSession ? new \App\Http\Resources\TourSessionResource($room->activeSession) : null,
+            'session' => $room->activeSession ? new TourSessionResource($room->activeSession) : null,
             'members' => RoomMemberResource::collection($room->members),
         ], 201);
     }
@@ -127,7 +129,7 @@ class RoomController extends Controller
             'message' => 'Joined room successfully',
             'room' => new RoomResource($room),
             'trip' => new RoomTripResource($room->trip),
-            'session' => $room->activeSession ? new \App\Http\Resources\TourSessionResource($room->activeSession) : null,
+            'session' => $room->activeSession ? new TourSessionResource($room->activeSession) : null,
             'members' => RoomMemberResource::collection($room->members),
         ]);
     }
@@ -189,7 +191,7 @@ class RoomController extends Controller
             abort(403, 'Hanya host yang bisa menutup room.');
         }
 
-        [$room, $session] = DB::transaction(function () use ($request, $room) {
+        [$room, $session] = DB::transaction(function () use ($room) {
             $now = now();
             $session = $room->activeSession()->firstOrFail();
 
@@ -233,7 +235,7 @@ class RoomController extends Controller
         }
     }
 
-    private function activeMember(Request $request, Room $room): \App\Models\RoomMember
+    private function activeMember(Request $request, Room $room): RoomMember
     {
         $member = $room->members()->where('user_id', $request->user()->id)->where('status', 'active')->first();
 
