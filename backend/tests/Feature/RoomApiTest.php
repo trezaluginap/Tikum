@@ -165,7 +165,7 @@ class RoomApiTest extends TestCase
         Sanctum::actingAs($host);
         $this->postJson("/api/rooms/{$room->id}/close")->assertOk();
 
-        Event::assertDispatched(RoomClosed::class, function (RoomClosed $event) use ($host) {
+        Event::assertDispatched(RoomClosed::class, function (RoomClosed $event) use ($room, $host) {
             return $event->room->status === 'closed'
                 && $event->room->closed_at !== null
                 && $event->session->status === 'finished'
@@ -206,7 +206,7 @@ class RoomApiTest extends TestCase
         $sessionId = $joinResponse->json('session.id');
 
         $authResponse = $this->postJson('/api/broadcasting/auth', [
-            'socket_id' => '123.456',
+            'socket_id'    => '123.456',
             'channel_name' => "private-tour-session.{$sessionId}",
         ]);
         $authResponse->assertOk();
@@ -216,7 +216,7 @@ class RoomApiTest extends TestCase
 
         Sanctum::actingAs($member);
         $this->postJson('/api/broadcasting/auth', [
-            'socket_id' => '123.456',
+            'socket_id'    => '123.456',
             'channel_name' => "private-tour-session.{$sessionId}",
         ])->assertForbidden();
     }

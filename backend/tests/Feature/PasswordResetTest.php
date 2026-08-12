@@ -21,18 +21,19 @@ class PasswordResetTest extends TestCase
 
         $this->postJson('/api/forgot-password', ['email' => $user->email])
             ->assertOk()
-            ->assertJsonPath('message', 'Jika email terdaftar, link reset password akan dikirim.');
+            ->assertJsonPath('message', 'Link reset password sudah dikirim ke email terdaftar.');
 
         Notification::assertSentTo($user, ResetPasswordNotification::class);
     }
 
-    public function test_unregistered_email_does_not_leak(): void
+    public function test_unregistered_email_is_rejected(): void
     {
         Notification::fake();
 
         $this->postJson('/api/forgot-password', ['email' => 'missing@example.com'])
-            ->assertOk()
-            ->assertJsonPath('message', 'Jika email terdaftar, link reset password akan dikirim.');
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('email')
+            ->assertJsonPath('errors.email.0', 'Email tidak terdaftar.');
 
         Notification::assertNothingSent();
     }
@@ -63,7 +64,8 @@ class PasswordResetTest extends TestCase
             'password' => 'new-password123',
             'password_confirmation' => 'new-password123',
         ])->assertUnprocessable()
-            ->assertJsonValidationErrors('email');
+            ->assertJsonValidationErrors('token')
+            ->assertJsonPath('errors.token.0', 'Token reset password tidak valid atau sudah kedaluwarsa.');
     }
 
     public function test_invalid_password_confirmation_returns_422(): void

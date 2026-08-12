@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Events\MemberLocationUpdated;
 use App\Http\Controllers\Controller;
+use App\Events\MemberLocationUpdated;
 use App\Http\Requests\UpdateCurrentLocationRequest;
 use App\Http\Resources\CurrentLocationResource;
 use App\Models\CurrentLocation;

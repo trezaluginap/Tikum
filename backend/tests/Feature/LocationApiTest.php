@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\LocationHistory;
 use App\Models\Room;
+use App\Models\TourSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;

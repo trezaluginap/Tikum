@@ -13,9 +13,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -64,12 +66,36 @@ class AuthController extends Controller
 
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
-        Password::sendResetLink([
-            'email' => strtolower($request->validated('email')),
-        ]);
+        $email = strtolower($request->validated('email'));
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'email' => ['Email tidak terdaftar.'],
+            ]);
+        }
+
+        try {
+            $status = Password::sendResetLink(['email' => $email]);
+        } catch (Throwable $exception) {
+            Log::error('Failed to send password reset email.', [
+                'email' => $email,
+                'exception' => $exception,
+            ]);
+
+            throw ValidationException::withMessages([
+                'email' => ['Email reset password gagal dikirim. Coba lagi nanti.'],
+            ]);
+        }
+
+        if ($status !== Password::RESET_LINK_SENT) {
+            throw ValidationException::withMessages([
+                'email' => [__($status)],
+            ]);
+        }
 
         return response()->json([
-            'message' => 'Jika email terdaftar, link reset password akan dikirim.',
+            'message' => 'Link reset password sudah dikirim ke email terdaftar.',
         ]);
     }
 
@@ -94,9 +120,21 @@ class AuthController extends Controller
             }
         );
 
+        if ($status === Password::INVALID_USER) {
+            throw ValidationException::withMessages([
+                'email' => ['Email tidak terdaftar.'],
+            ]);
+        }
+
+        if ($status === Password::INVALID_TOKEN) {
+            throw ValidationException::withMessages([
+                'token' => ['Token reset password tidak valid atau sudah kedaluwarsa.'],
+            ]);
+        }
+
         if ($status !== Password::PASSWORD_RESET) {
             throw ValidationException::withMessages([
-                'email' => ['Token reset password tidak valid.'],
+                'email' => [__($status)],
             ]);
         }
 
