@@ -1,10 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onProfilePress }) {
+  const { t } = useLanguage();
+
   // Entrance animation for whole header HUD
   const headerFadeAnim = useRef(new Animated.Value(0)).current;
   const headerSlideAnim = useRef(new Animated.Value(-12)).current;
@@ -27,29 +30,29 @@ export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onPro
   const getGreetingConfig = () => {
     const hr = new Date().getHours();
     if (hr >= 4 && hr < 11) {
-      return { actionTitle: 'MORNING RIDE ☀️', badgeText: 'PAGI' };
+      return { actionTitle: 'MORNING RIDE ☀️' };
     } else if (hr >= 11 && hr < 15) {
-      return { actionTitle: 'CONVOY SESSION 🌤️', badgeText: 'SIANG' };
+      return { actionTitle: 'CONVOY SESSION 🌤️' };
     } else if (hr >= 15 && hr < 18.5) {
-      return { actionTitle: 'SUNSET CRUISING 🌇', badgeText: 'SORE' };
+      return { actionTitle: 'SUNSET CRUISING 🌇' };
     } else {
-      return { actionTitle: 'NIGHT RADAR 🌙', badgeText: 'MALAM' };
+      return { actionTitle: 'NIGHT RADAR 🌙' };
     }
   };
 
   const getTickerItems = () => {
     const hr = new Date().getHours();
-    let timeSlogan = 'Rapatkan Barisan! 🏍️';
-    if (hr >= 11 && hr < 15) timeSlogan = 'Siap Riding Rombongan? 🚗';
-    else if (hr >= 15 && hr < 18.5) timeSlogan = 'Gas Tipis-Tipis Santai 💨';
-    else if (hr < 4 || hr >= 18.5) timeSlogan = 'Safety Riding Malam Ini! 📍';
+    let timeSlogan = t('home.sloganMorning');
+    if (hr >= 11 && hr < 15) timeSlogan = t('home.sloganNoon');
+    else if (hr >= 15 && hr < 18.5) timeSlogan = t('home.sloganAfternoon');
+    else if (hr < 4 || hr >= 18.5) timeSlogan = t('home.sloganNight');
 
     return [
       { icon: 'shield-check', text: timeSlogan, color: colors.primaryMuted },
-      { icon: 'speedometer', text: '💡 Cek tekanan ban & BBM sebelum jalan', color: '#10B981' },
-      { icon: 'radar', text: '📡 TiKum Radar Online · Supabase Active', color: '#0EA5E9' },
-      { icon: 'alert-decagram-outline', text: '🚨 Tombol SOS siap jika darurat', color: '#EF4444' },
-      { icon: 'car-multiple', text: '📍 Bagikan 6-digit PIN untuk gabung', color: '#F59E0B' },
+      { icon: 'speedometer', text: t('home.tickerTire'), color: '#10B981' },
+      { icon: 'radar', text: t('home.tickerRadar'), color: '#0EA5E9' },
+      { icon: 'alert-decagram-outline', text: t('home.tickerSos'), color: '#EF4444' },
+      { icon: 'car-multiple', text: t('home.tickerPin'), color: '#F59E0B' },
     ];
   };
 
@@ -69,13 +72,13 @@ export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onPro
           useNativeDriver: true,
         }),
         Animated.timing(tickerSlideAnim, {
-          toValue: -8,
+          toValue: -6,
           duration: 250,
           useNativeDriver: true,
         }),
       ]).start(() => {
         setTickerIndex((prev) => (prev + 1) % tickerItems.length);
-        tickerSlideAnim.setValue(8);
+        tickerSlideAnim.setValue(6);
 
         Animated.parallel([
           Animated.timing(tickerFadeAnim, {
@@ -109,15 +112,15 @@ export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onPro
     >
       <View style={styles.headerTopRow}>
         <View style={styles.left}>
-          
-          {/* Action Session Title */}
-          <Text style={styles.actionTitle}>{greeting.actionTitle}</Text>
-
+          {/* Action Badge */}
+          <View style={styles.sessionBadge}>
+            <Text style={styles.actionTitle}>{greeting.actionTitle}</Text>
+          </View>
           {/* User Name */}
           <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
         </View>
 
-        {/* Profile Avatar with Online Beacon */}
+        {/* Profile Avatar with Beacon */}
         <TouchableOpacity style={styles.avatarWrapper} onPress={onProfilePress} activeOpacity={0.85}>
           <View style={styles.profileButton}>
             {profilePhotoUrl ? (
@@ -134,7 +137,7 @@ export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onPro
       <View style={styles.tickerRibbonContainer}>
         <Animated.View
           style={[
-            styles.sloganBadge,
+            styles.sloganRow,
             {
               opacity: tickerFadeAnim,
               transform: [{ translateY: tickerSlideAnim }],
@@ -158,77 +161,40 @@ export function HomeHeader({ displayName, profileInitial, profilePhotoUrl, onPro
 
 const styles = StyleSheet.create({
   hudContainer: {
-    backgroundColor: 'rgba(30, 41, 59, 0.65)',
-    borderRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md + 2,
-    paddingBottom: spacing.md,
-    marginHorizontal: spacing.xl,
-    marginTop: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + spacing.xs : spacing.xs,
+    paddingBottom: spacing.xs,
+    marginTop: spacing.xs,
     marginBottom: spacing.xs,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.28)',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 6,
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   left: {
     flex: 1,
     paddingRight: spacing.md,
   },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  sessionBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingVertical: 2,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.full,
-    marginBottom: 6,
+    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radius.md - 2,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.25)',
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.success,
-    marginRight: 6,
-  },
-  statusPillText: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: colors.success,
-    letterSpacing: 1,
+    borderColor: 'rgba(99, 102, 241, 0.25)',
+    marginBottom: 4,
   },
   actionTitle: {
-    fontSize: 11,
-    fontFamily: fonts.black,
+    fontSize: 9,
+    fontFamily: fonts.bold,
     color: colors.primaryMuted,
-    letterSpacing: 1.2,
+    letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  callsignRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 2,
-    gap: 6,
-  },
-  callsignLabel: {
-    fontSize: 10,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-    letterSpacing: 1,
-  },
   userName: {
-    fontSize: 22,
+    fontSize: 20,
     fontFamily: fonts.black,
     color: colors.textPrimary,
     letterSpacing: -0.5,
@@ -237,25 +203,20 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   profileButton: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.full,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: 'rgba(99, 102, 241, 0.5)',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
     overflow: 'hidden',
   },
   profileInitial: {
     color: colors.white,
     fontFamily: fonts.black,
-    fontSize: fontSize.xl,
+    fontSize: fontSize.md + 2,
   },
   profileImage: {
     width: '100%',
@@ -264,36 +225,31 @@ const styles = StyleSheet.create({
   },
   onlineBeaconDot: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 13,
-    height: 13,
-    borderRadius: 6.5,
+    bottom: 0,
+    right: 0,
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
     backgroundColor: colors.success,
     borderWidth: 2,
-    borderColor: colors.card,
+    borderColor: colors.background,
   },
   tickerRibbonContainer: {
-    marginTop: spacing.md - 2,
+    marginTop: spacing.sm,
     paddingTop: spacing.xs + 2,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
   },
-  sloganBadge: {
+  sloganRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
-    paddingVertical: 4,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.2)',
   },
   sloganText: {
-    fontSize: 10,
-    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    fontFamily: fonts.medium,
     color: colors.primaryMuted,
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
 });
+
+export default HomeHeader;

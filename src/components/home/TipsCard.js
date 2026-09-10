@@ -2,23 +2,26 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
-
-const TIPS = [
-  { id: '1', icon: 'key-variant', text: 'Bagikan PIN kepada teman agar mereka bisa join room.' },
-  { id: '2', icon: 'map-check-outline', text: 'Cek rute preview sebelum membuat room.' },
-  { id: '3', icon: 'car-multiple', text: 'Isi jumlah kendaraan untuk koordinasi lebih baik.' },
-];
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export function TipsCard() {
+  const { t } = useLanguage();
+
+  const tips = [
+    { id: '1', icon: 'key-variant', textKey: 'home.tip1' },
+    { id: '2', icon: 'map-check-outline', textKey: 'home.tip2' },
+    { id: '3', icon: 'car-multiple', textKey: 'home.tip3' },
+  ];
+
   return (
     <View style={styles.card}>
-      <Text style={styles.sectionTitle}>Tips & Trik</Text>
-      {TIPS.map((tip, index) => (
-        <View key={tip.id} style={[styles.tipRow, index === TIPS.length - 1 && styles.tipRowLast]}>
+      <Text style={styles.sectionTitle}>{t('home.tipsTitle')}</Text>
+      {tips.map((tip, index) => (
+        <View key={tip.id} style={[styles.tipRow, index === tips.length - 1 && styles.tipRowLast]}>
           <View style={styles.tipIcon}>
             <MaterialCommunityIcons name={tip.icon} size={16} color={colors.primaryMuted} />
           </View>
-          <Text style={styles.tipText}>{tip.text}</Text>
+          <Text style={styles.tipText}>{t(tip.textKey)}</Text>
         </View>
       ))}
     </View>

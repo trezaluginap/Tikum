@@ -17,10 +17,11 @@ import { ActivityIndicator, View } from 'react-native';
 import './src/services/backgroundLocation';
 
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
+import { LanguageProvider } from './src/contexts/LanguageContext';
 import { navigationRef } from './src/navigation/rootNavigation';
 
-// Screens
-import HomeScreen from './src/screens/HomeScreen';
+// Screens & Navigators
+import MainTabNavigator from './src/navigation/MainTabNavigator';
 import LoginScreen from './src/screens/LoginScreen';
 import MapScreen from './src/screens/MapScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -61,7 +62,7 @@ const RootNavigator = () => {
       >
         {session ? (
           <Stack.Group>
-            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="Home" component={MainTabNavigator} />
             <Stack.Screen name="Map" component={MapScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
           </Stack.Group>
@@ -101,8 +102,10 @@ export default function App() {
   }
 
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

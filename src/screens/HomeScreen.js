@@ -1,37 +1,34 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView from 'react-native-maps';
 
 import { supabase } from '../../supabase';
-import { useAuth } from '../contexts/AuthContext';
+import ConvoyDialog from '../components/common/ConvoyDialog';
+import ConvoyToast from '../components/common/ConvoyToast';
 import { ActiveTripsCard } from '../components/home/ActiveTripsCard';
 import { CreateRoomModal } from '../components/home/CreateRoomModal';
-import { HomeHeader } from '../components/home/HomeHeader';
 import HistoryModal from '../components/home/HistoryModal';
+import { HomeHeader } from '../components/home/HomeHeader';
 import { JoinRoomModal } from '../components/home/JoinRoomModal';
 import { TipsCard } from '../components/home/TipsCard';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
-import ConvoyDialog from '../components/common/ConvoyDialog';
-import ConvoyToast from '../components/common/ConvoyToast';
+import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { useActiveTrips } from '../hooks/useActiveTrips';
 import { useLocationSearch } from '../hooks/useLocationSearch';
 import { useOsrmRoute } from '../hooks/useOsrmRoute';
 
-import { VIRAL_SPOTS } from '../constants/viralSpots';
-
-// Default region Indonesia
 const INDONESIA_REGION = {
   latitude: -2.5,
   longitude: 118.0,
@@ -41,26 +38,20 @@ const INDONESIA_REGION = {
 
 export default function HomeScreen() {
   const navigation = useNavigation();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
+  const { t } = useLanguage();
 
-  // ── Tab Navigation State ──
-  const [activeTab, setActiveTab] = useState('radar'); // 'radar' | 'destinasi' | 'stats' | 'settings'
-
-  // ── Modals ──
+  // ── Modals State ──
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
-  // ── Loading (split) ──
+  // ── Loading ──
   const [createLoading, setCreateLoading] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
 
-  // ── Settings Toggles State ──
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [darkModeMap, setDarkModeMap] = useState(true);
-
-  // ── Custom UI Notifications & Dialogs ──
+  // ── Custom UI Dialogs & Toasts ──
   const [dialogConfig, setDialogConfig] = useState({ visible: false });
   const [toastConfig, setToastConfig] = useState({ visible: false });
 
@@ -71,50 +62,12 @@ export default function HomeScreen() {
 
   // ── Vehicle & Routing ──
   const [vehicleCount, setVehicleCount] = useState(1);
-  const [vehicleType, setVehicleType] = useState('motorcycle'); // 'motorcycle' | 'car'
+  const [vehicleType, setVehicleType] = useState('motorcycle');
   const [useTolls, setUseTolls] = useState(true);
 
   const routingMode = vehicleType === 'motorcycle'
     ? 'motorcycle'
     : (useTolls ? 'auto_toll' : 'auto_no_toll');
-
-  // ── Weather State & Fetcher ──
-  const [weatherData, setWeatherData] = useState(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-
-  const fetchWeather = async () => {
-    setWeatherLoading(true);
-    try {
-      const lat = origin.coords?.latitude || -6.2088;
-      const lon = origin.coords?.longitude || 106.8456;
-      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
-      const json = await res.json();
-      if (json && json.current_weather) {
-        setWeatherData(json.current_weather);
-      }
-    } catch (e) {
-      console.warn('Weather fetch error:', e);
-    } finally {
-      setWeatherLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'destinasi' && !weatherData) {
-      fetchWeather();
-    }
-  }, [activeTab]);
-
-  const getWeatherDescription = (code) => {
-    if (code === 0) return { label: 'Cerah', icon: 'weather-sunny', color: '#F59E0B' };
-    if (code >= 1 && code <= 3) return { label: 'Cerah Berawan', icon: 'weather-partly-cloudy', color: '#F59E0B' };
-    if (code >= 45 && code <= 48) return { label: 'Berkabut', icon: 'weather-fog', color: '#94A3B8' };
-    if (code >= 51 && code <= 55) return { label: 'Gerimis', icon: 'weather-rainy', color: '#38BDF8' };
-    if (code >= 61 && code <= 65) return { label: 'Hujan', icon: 'weather-pouring', color: '#0EA5E9' };
-    if (code >= 80 && code <= 82) return { label: 'Hujan Deras', icon: 'weather-lightning-rainy', color: '#0EA5E9' };
-    if (code >= 95 && code <= 99) return { label: 'Badai Petir', icon: 'weather-lightning', color: '#EF4444' };
-    return { label: 'Berawan', icon: 'weather-cloudy', color: '#94A3B8' };
-  };
 
   // ── Hooks ──
   const origin = useLocationSearch();
@@ -122,28 +75,7 @@ export default function HomeScreen() {
   const { routeCoords, routeSummary } = useOsrmRoute(origin.coords, destination.coords, routingMode);
   const { activeTrips, loading: tripsLoading } = useActiveTrips();
 
-  // ── Animations ──
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-
-  const handleTabChange = (newTab) => {
-    setActiveTab(newTab);
-    fadeAnim.setValue(0.2);
-    slideAnim.setValue(10);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-    ]).start();
-  };
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
-    ]).start();
-  }, []);
-
-  // ── Reset saat keluar ──
+  // ── Reset on blur ──
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -161,7 +93,7 @@ export default function HomeScreen() {
   const profileInitial = displayName.substring(0, 2).toUpperCase();
   const isCreateReady = !!origin.coords && !!destination.coords && !createLoading;
 
-  // ── Handler: Buat Room ──
+  // ── Handlers ──
   const handleCreateRoom = async () => {
     setCreateLoading(true);
     try {
@@ -178,13 +110,10 @@ export default function HomeScreen() {
       if (!data?.length) throw new Error('Room dibuat tapi data tidak terambil');
 
       const createdRoom = data[0];
-
-      let modeCode = 2; // default auto_toll
-      if (vehicleType === 'motorcycle') modeCode = 1;
-      else if (!useTolls) modeCode = 3;
+      let modeCode = vehicleType === 'motorcycle' ? 1 : (useTolls ? 2 : 3);
       const encodedVehicleCount = modeCode * 1000 + vehicleCount;
 
-      const { error: tripError } = await supabase
+      await supabase
         .from('room_trips')
         .upsert([{
           room_id: createdRoom.id,
@@ -195,8 +124,6 @@ export default function HomeScreen() {
           vehicle_count: encodedVehicleCount,
         }], { onConflict: 'room_id' });
 
-      if (tripError) console.warn('Trip setup error:', tripError.message);
-
       setCreateModalVisible(false);
       const savedCoords = origin.coords;
       const savedDestCoords = destination.coords;
@@ -206,8 +133,6 @@ export default function HomeScreen() {
       origin.clearAll();
       destination.clearAll();
       setVehicleCount(1);
-      setVehicleType('motorcycle');
-      setUseTolls(true);
 
       setDialogConfig({
         visible: true,
@@ -250,7 +175,6 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Handler: Gabung Room ──
   const handleJoinRoom = async () => {
     if (!/^\d{6}$/.test(pinInput)) {
       showToast('warning', 'Validasi PIN', 'PIN room harus terdiri dari 6 digit angka.');
@@ -267,14 +191,14 @@ export default function HomeScreen() {
 
       if (error || !data) throw new Error('PIN tidak ditemukan atau room perjalanan sudah ditutup.');
 
-      const { data: tripData, error: tripError } = await supabase
+      const { data: tripData } = await supabase
         .from('room_trips')
         .select('origin_latitude, origin_longitude, destination_latitude, destination_longitude, vehicle_count')
         .eq('room_id', data.id)
         .maybeSingle();
 
       let joinOrigin = null, joinDestination = null, joinedVehicleCount = null;
-      if (!tripError && tripData) {
+      if (tripData) {
         joinOrigin = { latitude: tripData.origin_latitude, longitude: tripData.origin_longitude };
         joinDestination = { latitude: tripData.destination_latitude, longitude: tripData.destination_longitude };
         joinedVehicleCount = tripData.vehicle_count;
@@ -304,20 +228,9 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Handler: Resume trip ──
   const handleTripResume = (trip) => {
     const td = Array.isArray(trip.room_trips) ? trip.room_trips[0] : trip.room_trips;
-    if (!td) {
-      setDialogConfig({
-        visible: true,
-        type: 'info',
-        icon: 'information-outline',
-        title: 'Data Tidak Lengkap',
-        message: 'Detail rute perjalanan tidak ditemukan. Coba buat room baru.',
-        buttons: [{ text: 'MENGERTI', style: 'primary' }],
-      });
-      return;
-    }
+    if (!td) return;
     navigation.navigate('Map', {
       roomId: trip.id,
       pin: trip.room_pin,
@@ -328,43 +241,11 @@ export default function HomeScreen() {
     });
   };
 
-  // ── Handler: Auto fill rute dari Tempat Viral ──
-  const handleCreateRouteToSpot = (spot) => {
-    destination.setManual(spot.name, spot.latitude, spot.longitude);
-    setCreateModalVisible(true);
-  };
-
-  // ── Handler: Sign Out ──
-  const handleSignOut = async () => {
-    setDialogConfig({
-      visible: true,
-      type: 'danger',
-      icon: 'logout-variant',
-      title: 'Keluar dari Sesi?',
-      message: 'Apakah kamu yakin ingin keluar dari akun radar TiKum saat ini?',
-      buttons: [
-        { text: 'BATAL', style: 'secondary' },
-        {
-          text: 'KELUAR',
-          style: 'danger',
-          onPress: async () => {
-            try {
-              if (signOut) await signOut();
-              else await supabase.auth.signOut();
-            } catch (err) {
-              console.warn('Signout error:', err);
-            }
-          },
-        },
-      ],
-    });
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
 
-      {/* ══ CUSTOM OVERLAY DIALOGS & TOASTS ══ */}
+      {/* Custom Overlays */}
       <ConvoyToast
         visible={toastConfig.visible}
         type={toastConfig.type}
@@ -372,7 +253,6 @@ export default function HomeScreen() {
         message={toastConfig.message}
         onClose={() => setToastConfig((prev) => ({ ...prev, visible: false }))}
       />
-
       <ConvoyDialog
         visible={dialogConfig.visible}
         type={dialogConfig.type}
@@ -383,7 +263,7 @@ export default function HomeScreen() {
         onClose={() => setDialogConfig({ visible: false })}
       />
 
-      {/* ── MODALS ── */}
+      {/* Modals */}
       <CreateRoomModal
         visible={createModalVisible}
         onClose={() => setCreateModalVisible(false)}
@@ -415,7 +295,7 @@ export default function HomeScreen() {
         onClose={() => setHistoryModalVisible(false)}
       />
 
-      {/* ── HEADER ── */}
+      {/* Header */}
       <HomeHeader
         displayName={displayName}
         profileInitial={profileInitial}
@@ -423,379 +303,70 @@ export default function HomeScreen() {
         onProfilePress={() => navigation.navigate('Profile')}
       />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollInner}
-      >
-        {activeTab === 'radar' && (
-          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-            {/* ══ COMPACT MAP RADAR ══ */}
-            <View style={styles.mapContainer}>
-              <MapView
-                style={styles.map}
-                initialRegion={INDONESIA_REGION}
-                customMapStyle={mapDarkStyle}
-                scrollEnabled={false}
-                zoomEnabled={false}
-                rotateEnabled={false}
-              />
-              <View style={styles.mapOverlay}>
-                <Text style={styles.mapOverlayText}>Radar Indonesia</Text>
-              </View>
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.scrollInner}>
+        {/* Map Radar View */}
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.map}
+            initialRegion={INDONESIA_REGION}
+            customMapStyle={mapDarkStyle}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            rotateEnabled={false}
+          />
+          <View style={styles.mapOverlay}>
+            <Text style={styles.mapOverlayText}>{t('home.radarTitle')}</Text>
+          </View>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => setCreateModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: 'rgba(99,102,241,0.12)' }]}>
+              <MaterialCommunityIcons name="rocket-launch" size={20} color={colors.primary} />
             </View>
+            <Text style={styles.actionTitle}>{t('home.buatRoom')}</Text>
+            <Text style={styles.actionDesc}>{t('home.buatRoomDesc')}</Text>
+          </TouchableOpacity>
 
-            {/* ══ COMPACT QUICK ACTIONS ══ */}
-            <View style={styles.quickActions}>
-              <TouchableOpacity
-                style={styles.actionCard}
-                onPress={() => setCreateModalVisible(true)}
-                activeOpacity={0.85}
-              >
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(99,102,241,0.12)' }]}>
-                  <MaterialCommunityIcons name="rocket-launch" size={20} color={colors.primary} />
-                </View>
-                <Text style={styles.actionTitle}>Buat Room</Text>
-                <Text style={styles.actionDesc}>Atur rute convoy</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionCard}
-                onPress={() => setJoinModalVisible(true)}
-                activeOpacity={0.85}
-              >
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
-                  <MaterialCommunityIcons name="account-group" size={20} color={colors.success} />
-                </View>
-                <Text style={styles.actionTitle}>Gabung Room</Text>
-                <Text style={styles.actionDesc}>Masukkan PIN</Text>
-              </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => setJoinModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
+              <MaterialCommunityIcons name="account-group" size={20} color={colors.success} />
             </View>
+            <Text style={styles.actionTitle}>{t('home.gabungRoom')}</Text>
+            <Text style={styles.actionDesc}>{t('home.gabungRoomDesc')}</Text>
+          </TouchableOpacity>
+        </View>
 
-            {/* ══ ACTIVE TRIPS ══ */}
-            <View style={styles.sectionContainer}>
-              <ActiveTripsCard
-                activeTrips={activeTrips}
-                loading={tripsLoading}
-                onTripResume={handleTripResume}
-                onHistoryPress={() => setHistoryModalVisible(true)}
-              />
-            </View>
+        {/* Active Trips Card */}
+        <View style={styles.sectionContainer}>
+          <ActiveTripsCard
+            activeTrips={activeTrips}
+            loading={tripsLoading}
+            onTripResume={handleTripResume}
+            onHistoryPress={() => setHistoryModalVisible(true)}
+          />
+        </View>
 
-            {/* ══ TIPS ══ */}
-            <View style={styles.sectionContainer}>
-              <TipsCard />
-            </View>
-          </Animated.View>
-        )}
-
-        {/* ══ DESTINASI & CUACA UNIFIED PAGE ══ */}
-        {activeTab === 'destinasi' && (
-          <Animated.View style={[styles.tabContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <View style={styles.tabHeaderRow}>
-              <MaterialCommunityIcons name="compass-outline" size={20} color={colors.primary} />
-              <Text style={styles.tabTitle}>Destinasi & Cuaca</Text>
-            </View>
-            <Text style={styles.tabSubtitle}>Pantauan cuaca rute & pilihan tempat riding konvoi viral.</Text>
-
-            {/* Weather HUD Widget */}
-            {weatherLoading ? (
-              <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Memuat informasi satelit cuaca...</Text>
-              </View>
-            ) : weatherData ? (
-              <View style={[styles.weatherDashboard, { marginBottom: spacing.lg }]}>
-                <View style={styles.weatherMain}>
-                  <MaterialCommunityIcons
-                    name={getWeatherDescription(weatherData.weathercode).icon}
-                    size={54}
-                    color={getWeatherDescription(weatherData.weathercode).color}
-                  />
-                  <Text style={styles.tempText}>{Math.round(weatherData.temperature)}°C</Text>
-                  <Text style={styles.weatherCondition}>{getWeatherDescription(weatherData.weathercode).label}</Text>
-                </View>
-
-                <View style={styles.weatherDivider} />
-
-                <View style={styles.weatherMetaRow}>
-                  <View style={styles.weatherMetaItem}>
-                    <MaterialCommunityIcons name="wind-power" size={16} color={colors.textMuted} />
-                    <Text style={styles.weatherMetaVal}>{weatherData.windspeed} km/h</Text>
-                    <Text style={styles.weatherMetaLabel}>Kecepatan Angin</Text>
-                  </View>
-                  <View style={styles.weatherMetaItem}>
-                    <MaterialCommunityIcons name="compass-rose" size={16} color={colors.textMuted} />
-                    <Text style={styles.weatherMetaVal}>{weatherData.winddirection}°</Text>
-                    <Text style={styles.weatherMetaLabel}>Arah Angin</Text>
-                  </View>
-                </View>
-
-                <View style={styles.adviceBox}>
-                  <MaterialCommunityIcons name="shield-check-outline" size={16} color="#10B981" style={{ marginRight: 6 }} />
-                  <Text style={styles.adviceText}>
-                    {weatherData.weathercode >= 51
-                      ? 'Rute basah terdeteksi. Siapkan jas hujan & jaga jarak pengereman.'
-                      : 'Kondisi udara mendukung. Kondusif untuk berkendara konvoi hari ini.'}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
-            {/* Viral Spots Header */}
-            <Text style={styles.sectionHeading}>Rekomendasi Riding Spots</Text>
-
-            {VIRAL_SPOTS.map((spot) => (
-              <View key={spot.id} style={styles.spotCard}>
-                <View style={styles.spotCardHeader}>
-                  <View style={styles.spotTagBadge}>
-                    <Text style={styles.spotTagText}>{spot.tag}</Text>
-                  </View>
-                  <View style={styles.spotBestTimeBadge}>
-                    <Text style={styles.spotBestTimeText}>{spot.bestTime}</Text>
-                  </View>
-                </View>
-                <Text style={styles.spotName}>{spot.name}</Text>
-                <Text style={styles.spotRegion}>{spot.region}</Text>
-                <Text style={styles.spotDesc}>{spot.description}</Text>
-
-                <TouchableOpacity
-                  style={styles.spotActionBtn}
-                  onPress={() => handleCreateRouteToSpot(spot)}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons name="map-marker-distance" size={16} color={colors.white} style={{ marginRight: 6 }} />
-                  <Text style={styles.spotActionBtnText}>Buat Rute ke Sini</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </Animated.View>
-        )}
-
-        {activeTab === 'stats' && (
-          <Animated.View style={[styles.tabContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <View style={styles.tabHeaderRow}>
-              <MaterialCommunityIcons name="chart-timeline-variant" size={20} color={colors.primary} />
-              <Text style={styles.tabTitle}>Statistik & Pencapaian</Text>
-            </View>
-            <Text style={styles.tabSubtitle}>Ringkasan aktivitas berkendara rombongan kamu di radar TiKum.</Text>
-
-            {/* Dashboard Stats */}
-            <View style={styles.statsGrid}>
-              <View style={styles.statsCardItem}>
-                <Text style={styles.statsVal}>340 km</Text>
-                <Text style={styles.statsLabel}>Total Jarak</Text>
-              </View>
-              <View style={styles.statsCardItem}>
-                <Text style={styles.statsVal}>12x</Text>
-                <Text style={styles.statsLabel}>Riding Konvoi</Text>
-              </View>
-            </View>
-
-            <View style={styles.statsCardSingle}>
-              <Text style={styles.statsVal}>2.4 Jam</Text>
-              <Text style={styles.statsLabel}>Rata-rata Durasi Perjalanan</Text>
-            </View>
-
-            {/* Badges */}
-            <Text style={styles.sectionHeading}>Lencana Pengendara</Text>
-
-            <View style={styles.badgeRow}>
-              <View style={styles.badgeItem}>
-                <View style={[styles.badgeIconBg, { backgroundColor: 'rgba(99,102,241,0.15)' }]}>
-                  <MaterialCommunityIcons name="shield-crown-outline" size={24} color={colors.primary} />
-                </View>
-                <Text style={styles.badgeName}>Pioneer Lead</Text>
-                <Text style={styles.badgeDesc}>Memimpin konvoi</Text>
-              </View>
-
-              <View style={styles.badgeItem}>
-                <View style={[styles.badgeIconBg, { backgroundColor: 'rgba(245,158,11,0.15)' }]}>
-                  <MaterialCommunityIcons name="weather-night" size={24} color="#F59E0B" />
-                </View>
-                <Text style={styles.badgeName}>Night Cruiser</Text>
-                <Text style={styles.badgeDesc}>Riding malam hari</Text>
-              </View>
-
-              <View style={styles.badgeItem}>
-                <View style={[styles.badgeIconBg, { backgroundColor: 'rgba(16,185,129,0.15)' }]}>
-                  <MaterialCommunityIcons name="heart-pulse" size={24} color="#10B981" />
-                </View>
-                <Text style={styles.badgeName}>Safety Rider</Text>
-                <Text style={styles.badgeDesc}>Bebas sinyal SOS</Text>
-              </View>
-            </View>
-          </Animated.View>
-        )}
-
-        {/* ══ SETTINGS PAGE ══ */}
-        {activeTab === 'settings' && (
-          <Animated.View style={[styles.tabContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <View style={styles.tabHeaderRow}>
-              <MaterialCommunityIcons name="cog-outline" size={20} color={colors.primary} />
-              <Text style={styles.tabTitle}>Pengaturan Aplikasi</Text>
-            </View>
-            <Text style={styles.tabSubtitle}>Kelola preferensi radar, lokasi, dan akun pengguna kamu.</Text>
-
-            {/* Account Card */}
-            <View style={styles.settingsAccountCard}>
-              <View style={styles.accountAvatarCircle}>
-                <Text style={styles.accountInitial}>{profileInitial}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.accountName}>{displayName}</Text>
-                <Text style={styles.accountEmail}>{user?.email || 'Akun Terverifikasi'}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.profileEditBtn}
-                onPress={() => navigation.navigate('Profile')}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="account-edit-outline" size={18} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Settings Options Group */}
-            <View style={styles.settingsGroup}>
-              <Text style={styles.settingsGroupTitle}>PREFERENSI RADAR</Text>
-
-              <View style={styles.settingItemRow}>
-                <View style={styles.settingItemLeft}>
-                  <MaterialCommunityIcons name="bell-ring-outline" size={20} color={colors.primaryMuted} />
-                  <View>
-                    <Text style={styles.settingItemTitle}>Notifikasi Konvoi Realtime</Text>
-                    <Text style={styles.settingItemSub}>Terima alert SOS & update room</Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setNotificationsEnabled((prev) => !prev)}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons
-                    name={notificationsEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
-                    size={36}
-                    color={notificationsEnabled ? colors.primary : colors.textMuted}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.settingItemRow}>
-                <View style={styles.settingItemLeft}>
-                  <MaterialCommunityIcons name="map-clock-outline" size={20} color={colors.primaryMuted} />
-                  <View>
-                    <Text style={styles.settingItemTitle}>Mode Peta Gelap (Dark Map)</Text>
-                    <Text style={styles.settingItemSub}>Gunakan kontras tinggi malam</Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setDarkModeMap((prev) => !prev)}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons
-                    name={darkModeMap ? 'toggle-switch' : 'toggle-switch-off-outline'}
-                    size={36}
-                    color={darkModeMap ? colors.primary : colors.textMuted}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.settingsGroup}>
-              <Text style={styles.settingsGroupTitle}>LOKASI & PERFORMA</Text>
-
-              <TouchableOpacity
-                style={styles.settingItemRow}
-                onPress={() => showToast('success', 'Performa Peta', 'Cache peta lokal berhasil dibersihkan.')}
-                activeOpacity={0.7}
-              >
-                <View style={styles.settingItemLeft}>
-                  <MaterialCommunityIcons name="broom" size={20} color={colors.primaryMuted} />
-                  <View>
-                    <Text style={styles.settingItemTitle}>Bersihkan Cache Peta</Text>
-                    <Text style={styles.settingItemSub}>Bebaskan memori temporary peta</Text>
-                  </View>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Logout Button */}
-            <TouchableOpacity
-              style={styles.signOutBtn}
-              onPress={handleSignOut}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons name="logout-variant" size={18} color={colors.danger} style={{ marginRight: 6 }} />
-              <Text style={styles.signOutBtnText}>Keluar dari Akun</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.appVersionFooter}>TiKum Radar v1.4.0 · Build MVP Phase 1</Text>
-          </Animated.View>
-        )}
+        {/* Tips Card */}
+        <View style={styles.sectionContainer}>
+          <TipsCard />
+        </View>
 
         <View style={{ height: 110 }} />
       </ScrollView>
-
-      {/* ══ FLOATING GLASSMORPHIC TAB BAR ══ */}
-      <View style={styles.tabBarFloatingContainer}>
-        <View style={styles.glassTabBar}>
-          <TouchableOpacity
-            style={[styles.tabItem, activeTab === 'radar' && styles.tabItemActive]}
-            onPress={() => handleTabChange('radar')}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons
-              name="radar"
-              size={20}
-              color={activeTab === 'radar' ? colors.primary : colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, activeTab === 'radar' && styles.tabLabelActive]}>Radar</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabItem, activeTab === 'destinasi' && styles.tabItemActive]}
-            onPress={() => handleTabChange('destinasi')}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons
-              name="compass-outline"
-              size={20}
-              color={activeTab === 'destinasi' ? colors.primary : colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, activeTab === 'destinasi' && styles.tabLabelActive]}>Destinasi</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabItem, activeTab === 'stats' && styles.tabItemActive]}
-            onPress={() => handleTabChange('stats')}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons
-              name="chart-timeline-variant"
-              size={20}
-              color={activeTab === 'stats' ? colors.primary : colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, activeTab === 'stats' && styles.tabLabelActive]}>Statistik</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabItem, activeTab === 'settings' && styles.tabItemActive]}
-            onPress={() => handleTabChange('settings')}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons
-              name="cog-outline"
-              size={20}
-              color={activeTab === 'settings' ? colors.primary : colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, activeTab === 'settings' && styles.tabLabelActive]}>Pengaturan</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
     </SafeAreaView>
   );
 }
 
-// ── Dark map style (Google Maps) ──
 const mapDarkStyle = [
   { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
@@ -808,18 +379,9 @@ const mapDarkStyle = [
 ];
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollInner: {
-    paddingBottom: 20,
-  },
-
-  // Map (Compact height)
+  container: { flex: 1, backgroundColor: colors.background },
+  scroll: { flex: 1 },
+  scrollInner: { paddingBottom: 20 },
   mapContainer: {
     height: 130,
     marginHorizontal: spacing.xl,
@@ -829,9 +391,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(99, 102, 241, 0.2)',
   },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
+  map: { ...StyleSheet.absoluteFillObject },
   mapOverlay: {
     position: 'absolute',
     bottom: spacing.sm,
@@ -843,21 +403,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  mapOverlayText: {
-    fontSize: 10,
-    fontFamily: fonts.bold,
-    color: colors.primaryMuted,
-    letterSpacing: 0.5,
-  },
-
-  // Quick Actions (Compact)
-  quickActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginHorizontal: spacing.xl,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
+  mapOverlayText: { fontSize: 10, fontFamily: fonts.bold, color: colors.primaryMuted, letterSpacing: 0.5 },
+  quickActions: { flexDirection: 'row', gap: spacing.md, marginHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.sm },
   actionCard: {
     flex: 1,
     backgroundColor: 'rgba(30, 41, 59, 0.5)',
@@ -866,442 +413,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(99, 102, 241, 0.15)',
   },
-  actionIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  actionTitle: {
-    fontSize: fontSize.md,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  actionDesc: {
-    fontSize: 10,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-  },
-
-  // Section Padding (Radar items)
-  sectionContainer: {
-    paddingHorizontal: spacing.xl,
-    marginTop: spacing.sm,
-  },
-
-  // General Tab Styling
-  tabContent: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
-  },
-  tabHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  tabTitle: {
-    fontSize: fontSize.lg,
-    fontFamily: fonts.black,
-    color: colors.textPrimary,
-    letterSpacing: -0.5,
-  },
-  tabSubtitle: {
-    fontSize: fontSize.xs,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    lineHeight: 16,
-    marginBottom: spacing.md,
-  },
-
-  // Spots Styling
-  spotCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderRadius: radius.xl,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.2)',
-  },
-  spotCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  spotTagBadge: {
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-    paddingVertical: 3,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-  },
-  spotTagText: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: colors.primaryMuted,
-  },
-  spotBestTimeBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingVertical: 3,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-  },
-  spotBestTimeText: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-  },
-  spotName: {
-    fontSize: fontSize.md + 1,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-  },
-  spotRegion: {
-    fontSize: fontSize.xs - 1,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    marginTop: 2,
-    letterSpacing: 0.5,
-  },
-  spotDesc: {
-    fontSize: fontSize.xs,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    lineHeight: 16,
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  spotActionBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.sm + 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  spotActionBtnText: {
-    fontSize: fontSize.xs + 1,
-    fontFamily: fonts.bold,
-    color: colors.white,
-  },
-
-  // Weather Dash Styling
-  weatherDashboard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.2)',
-    alignItems: 'center',
-  },
-  weatherMain: {
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  tempText: {
-    fontSize: 40,
-    fontFamily: fonts.black,
-    color: colors.textPrimary,
-    letterSpacing: -1,
-    marginTop: 2,
-  },
-  weatherCondition: {
-    fontSize: fontSize.md,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    marginTop: 2,
-  },
-  weatherDivider: {
-    width: '100%',
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginVertical: spacing.md,
-  },
-  weatherMetaRow: {
-    flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'space-around',
-  },
-  weatherMetaItem: {
-    alignItems: 'center',
-  },
-  weatherMetaVal: {
-    fontSize: fontSize.md,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  weatherMetaLabel: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-  adviceBox: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginTop: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.2)',
-  },
-  adviceText: {
-    flex: 1,
-    fontSize: fontSize.xs,
-    fontFamily: fonts.medium,
-    color: '#34D399',
-    lineHeight: 16,
-  },
-  loadingContainer: {
-    height: 160,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: fontSize.sm,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-  },
-
-  // Stats Styling
-  statsGrid: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  statsCardItem: {
-    flex: 1,
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.2)',
-    alignItems: 'center',
-  },
-  statsCardSingle: {
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderRadius: radius.xl,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.2)',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  statsVal: {
-    fontSize: 28,
-    fontFamily: fonts.black,
-    color: colors.primary,
-    letterSpacing: -0.5,
-  },
-  statsLabel: {
-    fontSize: fontSize.xs - 1,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-  sectionHeading: {
-    fontSize: fontSize.md,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  badgeItem: {
-    flex: 1,
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderRadius: radius.xl,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-  },
-  badgeIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  badgeName: {
-    fontSize: 10,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  badgeDesc: {
-    fontSize: 8,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-
-  // Settings Styling
-  settingsAccountCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.55)',
-    borderRadius: radius.xl,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.28)',
-  },
-  accountAvatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  accountInitial: {
-    color: colors.white,
-    fontFamily: fonts.black,
-    fontSize: fontSize.md,
-  },
-  accountName: {
-    fontSize: fontSize.md,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-  },
-  accountEmail: {
-    fontSize: fontSize.xs,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
-  profileEditBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(99, 102, 241, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  settingsGroup: {
-    marginBottom: spacing.lg,
-  },
-  settingsGroupTitle: {
-    fontSize: 10,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-    letterSpacing: 1,
-    marginBottom: spacing.sm,
-  },
-  settingItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(30, 41, 59, 0.45)',
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    marginBottom: spacing.xs + 2,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  settingItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    flex: 1,
-  },
-  settingItemTitle: {
-    fontSize: fontSize.xs + 1,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-  },
-  settingItemSub: {
-    fontSize: 10,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
-  signOutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-    marginTop: spacing.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-  },
-  signOutBtnText: {
-    fontSize: fontSize.xs + 1,
-    fontFamily: fonts.bold,
-    color: colors.danger,
-  },
-  appVersionFooter: {
-    fontSize: 10,
-    fontFamily: fonts.medium,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.lg,
-    letterSpacing: 0.5,
-  },
-
-  // Floating Tab Bar Styling (Futuristic Glass Tab Bar)
-  tabBarFloatingContainer: {
-    position: 'absolute',
-    bottom: 24,
-    left: spacing.xl,
-    right: spacing.xl,
-    height: 60,
-    zIndex: 100,
-  },
-  glassTabBar: {
-    flex: 1,
-    backgroundColor: 'rgba(30, 41, 59, 0.88)',
-    borderRadius: radius.xl + 4,
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.28)',
-    paddingHorizontal: spacing.md,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-    paddingVertical: 4,
-  },
-  tabItemActive: {
-    transform: [{ scale: 1.05 }],
-  },
-  tabLabel: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: colors.textMuted,
-    marginTop: 3,
-    letterSpacing: 0.3,
-  },
-  tabLabelActive: {
-    color: colors.primary,
-  },
+  actionIcon: { width: 38, height: 38, borderRadius: radius.lg, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.sm },
+  actionTitle: { fontSize: fontSize.md, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: 2 },
+  actionDesc: { fontSize: 10, fontFamily: fonts.medium, color: colors.textMuted },
+  sectionContainer: { paddingHorizontal: spacing.xl, marginTop: spacing.sm },
 });

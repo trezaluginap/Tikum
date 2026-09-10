@@ -731,3 +731,5 @@ const styles = StyleSheet.create({
   submitBtnDisabled: { opacity: 0.4 },
   submitBtnText: { color: colors.white, fontSize: fontSize.lg, fontFamily: fonts.semiBold },
 });
+
+export default CreateRoomModal;
