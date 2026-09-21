@@ -19,9 +19,11 @@ import ConvoyDialog from '../components/common/ConvoyDialog';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { navigate } from '../navigation/rootNavigation';
 
 export default function LoginScreen({ navigation }) {
+  const { t } = useLanguage();
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,19 +53,19 @@ export default function LoginScreen({ navigation }) {
   }, []);
 
   const getFriendlyErrorMessage = (errorMsg) => {
-    if (!errorMsg) return 'Periksa kembali email dan password Anda.';
+    if (!errorMsg) return t('auth.errorGeneric');
     const lower = errorMsg.toLowerCase();
-    if (lower.includes('invalid login credentials') || lower.includes('invalid_credentials')) {
-      return 'Email atau password yang Anda masukkan salah. Silakan periksa kembali.';
+    if (lower.includes('invalid login credentials') || lower.includes('invalid_credentials') || lower.includes('these credentials')) {
+      return t('auth.errorInvalid');
     }
     if (lower.includes('email not confirmed')) {
-      return 'Alamat email Anda belum dikonfirmasi. Cek inbox email Anda untuk melakukan verifikasi.';
+      return t('auth.errorUnconfirmed');
     }
     if (lower.includes('too many requests') || lower.includes('rate limit')) {
-      return 'Terlalu banyak percobaan login gagal. Silakan tunggu beberapa menit.';
+      return t('auth.errorRateLimit');
     }
     if (lower.includes('user not found')) {
-      return 'Akun dengan email ini belum terdaftar. Silakan registrasi terlebih dahulu.';
+      return t('auth.errorNotFound');
     }
     return errorMsg;
   };
@@ -83,9 +85,9 @@ export default function LoginScreen({ navigation }) {
         visible: true,
         type: 'danger',
         icon: 'lock-alert',
-        title: 'Login Gagal',
+        title: t('auth.loginFailed'),
         message: getFriendlyErrorMessage(error.message),
-        buttons: [{ text: 'MENGERTI', style: 'primary' }],
+        buttons: [{ text: t('auth.understand'), style: 'primary' }],
       });
     } finally {
       setLoading(false);
@@ -144,7 +146,7 @@ export default function LoginScreen({ navigation }) {
               </View>
               <Text style={styles.mainTitle}>TiKum</Text>
               <Text style={styles.subtitle}>
-                Sistem koordinasi konvoi terpusat. Masukkan kredensial untuk mengakses akun.
+                {t('auth.subtitle')}
               </Text>
             </View>
 
@@ -159,7 +161,7 @@ export default function LoginScreen({ navigation }) {
                 />
                 <TextInput
                   style={styles.inputField}
-                  placeholder="Alamat Email"
+                  placeholder={t('auth.email')}
                   placeholderTextColor={colors.textDisabled}
                   value={email}
                   onChangeText={setEmail}
@@ -180,7 +182,7 @@ export default function LoginScreen({ navigation }) {
                 />
                 <TextInput
                   style={styles.inputField}
-                  placeholder="Password (Min. 6 Karakter)"
+                  placeholder={t('auth.passwordHint')}
                   placeholderTextColor={colors.textDisabled}
                   value={password}
                   onChangeText={setPassword}
@@ -201,7 +203,7 @@ export default function LoginScreen({ navigation }) {
 
               <View style={styles.forgotRow}>
                 <Pressable onPress={() => setForgotModalVisible(true)}>
-                  <Text style={styles.forgotText}>Lupa Password?</Text>
+                  <Text style={styles.forgotText}>{t('auth.forgotPass')}</Text>
                 </Pressable>
               </View>
 
@@ -220,7 +222,7 @@ export default function LoginScreen({ navigation }) {
                       color={colors.white}
                       style={styles.buttonIcon}
                     />
-                    <Text style={styles.loginButtonText}>Login</Text>
+                    <Text style={styles.loginButtonText}>{t('auth.loginBtn')}</Text>
                   </View>
                 )}
               </Pressable>
@@ -228,9 +230,9 @@ export default function LoginScreen({ navigation }) {
 
             {/* Footer */}
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Belum memiliki identitas akun? </Text>
+              <Text style={styles.footerText}>{t('auth.noAccount')} </Text>
               <Pressable onPress={handleBackToRegister}>
-                <Text style={styles.registerLink}>Registrasi Akun</Text>
+                <Text style={styles.registerLink}>{t('auth.register')}</Text>
               </Pressable>
             </View>
           </Animated.View>

@@ -18,9 +18,11 @@ import { StatusBar } from 'expo-status-bar';
 import ConvoyDialog from '../components/common/ConvoyDialog';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export default function RegisterScreens({ navigation }) {
   const { register, logout } = useAuth();
+  const { t } = useLanguage();
   const [step, setStep] = useState(1);
 
   // Form Data
@@ -40,20 +42,20 @@ export default function RegisterScreens({ navigation }) {
   const stepFadeAnim = useRef(new Animated.Value(1)).current;
 
   const getFriendlyRegisterError = (errorMsg) => {
-    if (!errorMsg) return 'Registrasi gagal. Silakan coba lagi.';
+    if (!errorMsg) return t('auth.registerFailed') + '.';
     const lower = errorMsg.toLowerCase();
     if (
       lower.includes('already registered') ||
       lower.includes('user_already_exists') ||
       lower.includes('already been taken')
     ) {
-      return 'Email ini sudah terdaftar. Silakan gunakan email lain atau login.';
+      return t('auth.errorAlready');
     }
     if (lower.includes('password should be at least')) {
-      return 'Password terlalu pendek. Gunakan minimal 6 karakter.';
+      return t('auth.errorShortPass');
     }
     if (lower.includes('invalid email') || lower.includes('email_invalid')) {
-      return 'Format alamat email tidak valid. Periksa kembali penulisan email.';
+      return t('auth.errorInvalidEmail');
     }
     return errorMsg;
   };
@@ -102,11 +104,11 @@ export default function RegisterScreens({ navigation }) {
         visible: true,
         type: 'success',
         icon: 'account-check',
-        title: 'Registrasi Berhasil!',
-        message: 'Akun radar kamu telah berhasil dibuat. Silakan login untuk bergabung ke rombongan convoy.',
+        title: t('auth.registerSuccess'),
+        message: t('auth.registerSuccessMsg'),
         buttons: [
           {
-            text: 'MASUK SEKARANG',
+            text: t('auth.enterNow'),
             style: 'primary',
             onPress: () => navigation.navigate('Login'),
           },
@@ -117,9 +119,9 @@ export default function RegisterScreens({ navigation }) {
         visible: true,
         type: 'danger',
         icon: 'account-alert',
-        title: 'Registrasi Gagal',
+        title: t('auth.registerFailed'),
         message: getFriendlyRegisterError(error.message),
-        buttons: [{ text: 'MENGERTI', style: 'primary' }],
+        buttons: [{ text: t('auth.understand'), style: 'primary' }],
       });
     } finally {
       setLoading(false);
@@ -159,16 +161,14 @@ export default function RegisterScreens({ navigation }) {
               <Pressable onPress={handleBack} style={styles.backButton}>
                 <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
               </Pressable>
-              <Text style={styles.stepIndicator}>TAHAP {step} DARI 2</Text>
+              <Text style={styles.stepIndicator}>{t('auth.stepLabel').replace('{step}', String(step))}</Text>
               <View style={{ width: 40 }} />
             </View>
 
             <View style={styles.headerSection}>
-              <Text style={styles.mainTitle}>{step === 1 ? 'Data Akses' : 'Identitas Radar'}</Text>
+              <Text style={styles.mainTitle}>{step === 1 ? t('auth.step1Title') : t('auth.step2Title')}</Text>
               <Text style={styles.subtitle}>
-                {step === 1
-                  ? 'Buat kredensial akses untuk bergabung ke dalam jaringan.'
-                  : 'Lengkapi identitas diri dan kendaraan untuk visibilitas di radar.'}
+                {step === 1 ? t('auth.step1Sub') : t('auth.step2Sub')}
               </Text>
             </View>
 
@@ -186,7 +186,7 @@ export default function RegisterScreens({ navigation }) {
                     />
                     <TextInput
                       style={styles.inputField}
-                      placeholder="Alamat Email"
+                      placeholder={t('auth.email')}
                       placeholderTextColor={colors.textDisabled}
                       value={email}
                       onChangeText={setEmail}
@@ -206,7 +206,7 @@ export default function RegisterScreens({ navigation }) {
                     />
                     <TextInput
                       style={styles.inputField}
-                      placeholder="Password (Min. 6 Karakter)"
+                      placeholder={t('auth.passwordHint')}
                       placeholderTextColor={colors.textDisabled}
                       value={password}
                       onChangeText={setPassword}
@@ -246,7 +246,7 @@ export default function RegisterScreens({ navigation }) {
                     />
                     <TextInput
                       style={styles.inputField}
-                      placeholder="Konfirmasi Password"
+                      placeholder={t('auth.confirmPasswordHint')}
                       placeholderTextColor={colors.textDisabled}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
@@ -270,7 +270,7 @@ export default function RegisterScreens({ navigation }) {
 
                   <View style={[styles.errorRow, { opacity: passwordMismatch ? 1 : 0 }]}>
                     <MaterialCommunityIcons name="alert-circle-outline" size={14} color={colors.danger} />
-                    <Text style={styles.errorText}>Password tidak cocok</Text>
+                    <Text style={styles.errorText}>{t('auth.mismatch')}</Text>
                   </View>
 
                   <Pressable
@@ -278,7 +278,7 @@ export default function RegisterScreens({ navigation }) {
                     disabled={!isStep1Valid}
                     style={[styles.primaryButton, !isStep1Valid && styles.primaryButtonDisabled]}
                   >
-                    <Text style={styles.primaryButtonText}>LANJUTKAN</Text>
+                    <Text style={styles.primaryButtonText}>{t('auth.continueBtn')}</Text>
                     <MaterialCommunityIcons
                       name="arrow-right"
                       size={20}
@@ -299,7 +299,7 @@ export default function RegisterScreens({ navigation }) {
                     />
                     <TextInput
                       style={styles.inputField}
-                      placeholder="Callsign (Nama Tampil)"
+                      placeholder={t('auth.callsign')}
                       placeholderTextColor={colors.textDisabled}
                       value={displayName}
                       onChangeText={setDisplayName}
@@ -317,7 +317,7 @@ export default function RegisterScreens({ navigation }) {
                     />
                     <TextInput
                       style={styles.inputField}
-                      placeholder="Unit Kendaraan"
+                      placeholder={t('auth.vehicleUnit')}
                       placeholderTextColor={colors.textDisabled}
                       value={vehicleName}
                       onChangeText={setVehicleName}
@@ -338,7 +338,7 @@ export default function RegisterScreens({ navigation }) {
                       <ActivityIndicator color={colors.white} size="small" />
                     ) : (
                       <>
-                        <Text style={styles.primaryButtonText}>DAFTAR AKUN</Text>
+                        <Text style={styles.primaryButtonText}>{t('auth.registerBtn')}</Text>
                         <MaterialCommunityIcons
                           name="check-circle-outline"
                           size={20}
@@ -355,9 +355,9 @@ export default function RegisterScreens({ navigation }) {
             {/* Login Link */}
             {step === 1 && (
               <View style={styles.footer}>
-                <Text style={styles.footerText}>Sudah memiliki akses? </Text>
+                <Text style={styles.footerText}>{t('auth.hasAccount')} </Text>
                 <Pressable onPress={() => navigation.navigate('Login')}>
-                  <Text style={styles.loginLink}>Masuk Sistem</Text>
+                  <Text style={styles.loginLink}>{t('auth.login')}</Text>
                 </Pressable>
               </View>
             )}
