@@ -20,10 +20,12 @@ import ConvoyDialog from '../components/common/ConvoyDialog';
 import ConvoyToast from '../components/common/ConvoyToast';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { user, signOut, restoreSession } = useAuth();
+  const { t } = useLanguage();
 
   // Custom UI Notifications & Dialogs
   const [dialogConfig, setDialogConfig] = useState({ visible: false });
@@ -143,12 +145,12 @@ export default function ProfileScreen() {
       visible: true,
       type: 'danger',
       icon: 'logout-variant',
-      title: 'Keluar Akun?',
-      message: 'Apakah Anda yakin ingin keluar dari sistem TiKum?',
+      title: t('profile.logoutTitle'),
+      message: t('profile.logoutMsg'),
       buttons: [
-        { text: 'Batal', style: 'cancel' },
+        { text: t('settings.signOutCancel'), style: 'cancel' },
         {
-          text: 'Keluar Akun',
+          text: t('profile.logoutOk'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -198,7 +200,7 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Profil</Text>
+        <Text style={styles.topBarTitle}>{t('profile.title')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -226,21 +228,21 @@ export default function ProfileScreen() {
             )}
           </TouchableOpacity>
 
-          <Text style={styles.headerText}>{displayName || 'Pilot Baru'}</Text>
+          <Text style={styles.headerText}>{displayName || t('profile.newPilot')}</Text>
           <Text style={styles.headerSubText}>{user?.email}</Text>
         </View>
 
         {/* DATA PRIBADI */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Identitas Radar</Text>
+<Text style={styles.sectionTitle}>{t('profile.sectionIdentity')}</Text>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Callsign (Nama Tampil)</Text>
+            <Text style={styles.label}>{t('auth.callsign')}</Text>
             <View style={styles.inputWrap}>
               <MaterialCommunityIcons name="account" size={20} color={colors.textMuted} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Masukkan callsign anda"
+                placeholder={t('auth.callsign')}
                 placeholderTextColor={colors.textDisabled}
                 value={displayName}
                 onChangeText={setDisplayName}
@@ -250,7 +252,7 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Frekuensi (No. Telepon)</Text>
+            <Text style={styles.label}>{t('profile.labelPhone')}</Text>
             <View style={styles.inputWrap}>
               <MaterialCommunityIcons name="phone" size={20} color={colors.textMuted} style={styles.inputIcon} />
               <TextInput
@@ -266,12 +268,12 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Status / Bio</Text>
+            <Text style={styles.label}>{t('profile.labelBio')}</Text>
             <View style={[styles.inputWrap, { alignItems: 'flex-start' }]}>
               <MaterialCommunityIcons name="text" size={20} color={colors.textMuted} style={[styles.inputIcon, { marginTop: 12 }]} />
               <TextInput
                 style={[styles.input, styles.textArea]}
-                placeholder="Deskripsi singkat..."
+                placeholder={t('profile.placeholderBio')}
                 placeholderTextColor={colors.textDisabled}
                 value={bio}
                 onChangeText={setBio}
@@ -285,14 +287,14 @@ export default function ProfileScreen() {
 
         {/* KENDARAAN */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Spesifikasi Kendaraan</Text>
+          <Text style={styles.sectionTitle}>{t('profile.sectionVehicle')}</Text>
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Unit Convoy</Text>
+            <Text style={styles.label}>{t('profile.labelUnit')}</Text>
             <View style={styles.inputWrap}>
               <MaterialCommunityIcons name="car-sports" size={20} color={colors.textMuted} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Contoh: Civic Hitam D 1234 XY"
+                placeholder={t('profile.placeholderUnit')}
                 placeholderTextColor={colors.textDisabled}
                 value={vehicleName}
                 onChangeText={setVehicleName}
@@ -315,7 +317,7 @@ export default function ProfileScreen() {
             ) : (
               <>
                 <MaterialCommunityIcons name="content-save" size={20} color={colors.white} style={{ marginRight: spacing.sm }} />
-                <Text style={styles.btnPrimaryText}>Sinkronisasi Data</Text>
+                <Text style={styles.btnPrimaryText}>{t('profile.save')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -327,7 +329,7 @@ export default function ProfileScreen() {
             activeOpacity={0.8}
           >
             <MaterialCommunityIcons name="power" size={20} color={colors.danger} style={{ marginRight: spacing.sm }} />
-            <Text style={styles.btnDangerText}>Putus Koneksi (Logout)</Text>
+            <Text style={styles.btnDangerText}>{t('profile.logout')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

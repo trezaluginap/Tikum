@@ -3,16 +3,18 @@ import React, { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function SosReasonModal({ visible, onSendReason, onClose }) {
+  const { t } = useLanguage();
   const [countdown, setCountdown] = useState(5);
 
   const reasons = [
-    { id: 'fuel', label: 'Habis Bensin', icon: 'gas-station', color: '#F59E0B' },
-    { id: 'accident', label: 'Terjatuh / Kecelakaan', icon: 'car-wash', color: '#EF4444' },
-    { id: 'engine', label: 'Motor / Mobil Mogok', icon: 'wrench', color: '#EC4899' },
-    { id: 'lost', label: 'Tertinggal / Tersesat', icon: 'compass-off', color: '#38BDF8' },
-    { id: 'other', label: 'Darurat Lainnya', icon: 'alert-circle', color: '#8B5CF6' },
+    { id: 'fuel', label: t('sos.reasonFuel'), icon: 'gas-station', color: '#F59E0B' },
+    { id: 'accident', label: t('sos.reasonAccident'), icon: 'car-wash', color: '#EF4444' },
+    { id: 'engine', label: t('sos.reasonEngine'), icon: 'wrench', color: '#EC4899' },
+    { id: 'lost', label: t('sos.reasonLost'), icon: 'compass-off', color: '#38BDF8' },
+    { id: 'other', label: t('sos.reasonOther'), icon: 'alert-circle', color: '#8B5CF6' },
   ];
 
   useEffect(() => {
@@ -24,7 +26,7 @@ export default function SosReasonModal({ visible, onSendReason, onClose }) {
           if (prev <= 1) {
             clearInterval(timer);
             setTimeout(() => {
-              if (onSendReason) onSendReason('Darurat Umum');
+              if (onSendReason) onSendReason(t('sos.reasonGeneral'));
             }, 0);
             return 0;
           }
@@ -48,8 +50,8 @@ export default function SosReasonModal({ visible, onSendReason, onClose }) {
               <MaterialCommunityIcons name="alert-rhombus" size={28} color={colors.danger} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>SINYAL SOS TERKIRIM!</Text>
-              <Text style={styles.subTitle}>Pilih alasan bantuan ({countdown}d):</Text>
+              <Text style={styles.title}>{t('sos.sentTitle')}</Text>
+              <Text style={styles.subTitle}>{t('sos.chooseReason')} ({countdown}s):</Text>
             </View>
           </View>
 
@@ -69,7 +71,7 @@ export default function SosReasonModal({ visible, onSendReason, onClose }) {
           </View>
 
           <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.8}>
-            <Text style={styles.closeText}>Tutup / Kirim Nanti</Text>
+            <Text style={styles.closeText}>{t('sos.close')}</Text>
           </TouchableOpacity>
         </View>
       </View>

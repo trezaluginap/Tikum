@@ -239,7 +239,7 @@ export default function DestinationScreen() {
                   />
                   <View style={{ marginLeft: spacing.sm }}>
                     <Text style={styles.tempText}>{Math.round(originWeather.temperature)}°C</Text>
-                    <Text style={styles.weatherCondition}>{getWeatherDescription(originWeather.weathercode).label} (Asal)</Text>
+                    <Text style={styles.weatherCondition}>{getWeatherDescription(originWeather.weathercode).label} ({t('dest.origin')})</Text>
                   </View>
                 </View>
               )}
@@ -253,7 +253,7 @@ export default function DestinationScreen() {
                   />
                   <View style={{ marginLeft: spacing.sm }}>
                     <Text style={styles.tempText}>{Math.round(destWeather.temperature)}°C</Text>
-                    <Text style={styles.weatherCondition}>{getWeatherDescription(destWeather.weathercode).label} (Destinasi)</Text>
+                    <Text style={styles.weatherCondition}>{getWeatherDescription(destWeather.weathercode).label} ({t('dest.destination')})</Text>
                   </View>
                 </View>
               )}
@@ -309,7 +309,7 @@ export default function DestinationScreen() {
           {filteredSpots.length === 0 ? (
             <View style={styles.emptySpotContainer}>
               <MaterialCommunityIcons name="map-marker-question-outline" size={32} color={colors.textMuted} />
-              <Text style={styles.emptySpotText}>Tidak ada destinasi yang cocok</Text>
+              <Text style={styles.emptySpotText}>{t('dest.empty')}</Text>
             </View>
           ) : (
             filteredSpots.map((spot) => (

@@ -29,6 +29,7 @@ import { getCurrentLocations, updateCurrentLocation } from '../api/locations.api
 import { closeRoom, leaveRoom } from '../api/rooms.api';
 import { resolveSos, triggerSos } from '../api/sos.api';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
 import { createEcho, disconnectEcho } from '../realtime/echo';
@@ -48,6 +49,7 @@ export default function MapScreen({ route, navigation }) {
   } = route.params || {};
 
   const { user } = useAuth();
+  const { t } = useLanguage();
   const mapRef = useRef(null);
   const roomClosedHandledRef = useRef(false);
   const [myLocation, setMyLocation] = useState(null);
@@ -129,7 +131,7 @@ export default function MapScreen({ route, navigation }) {
         longitude: myLocation?.longitude ?? null,
       });
       setSosUsers((prev) => ({ ...prev, [user?.id]: reasonLabel }));
-      showToast('danger', '⚠️ DEKLARASI SOS', `Alasan bantuan: "${reasonLabel}" dikirim ke rombongan.`);
+      showToast('danger', `⚠️ ${t('map.sosDeclared')}`, `Alasan bantuan: "${reasonLabel}" dikirim ke rombongan.`);
       if (notificationsPrefRef.current) {
         Vibration.vibrate([0, 300, 200, 300]);
         sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
@@ -301,13 +303,13 @@ export default function MapScreen({ route, navigation }) {
                 delete next[e.sos_alert.user_id];
                 return next;
               });
-              showToast('info', 'SOS Dibatalkan', 'Sinyal bantuan diselesaikan.');
+              showToast('info', t('map.sosCancelToast'), '');
             }
           })
           .listen('.room.closed', () => {
             if (isMounted && !roomClosedHandledRef.current) {
               roomClosedHandledRef.current = true;
-              showToast('warning', 'Room Ditutup', 'Host telah membubarkan sesi konvoi ini.');
+              showToast('warning', t('map.roomClosed'), t('map.roomClosedMsg'));
               setTimeout(() => navigation.goBack(), 2000);
             }
           });
@@ -381,9 +383,9 @@ export default function MapScreen({ route, navigation }) {
     if (!pin) return;
     await Clipboard.setStringAsync(pin);
     if (Platform.OS === 'android') {
-      ToastAndroid.show('PIN disalin!', ToastAndroid.SHORT);
+      ToastAndroid.show(t('map.pinCopied'), ToastAndroid.SHORT);
     } else {
-      Alert.alert('Disalin', `PIN ${pin} berhasil disalin`);
+      Alert.alert(t('map.pinCopied'), `PIN ${pin} ${t('map.pinCopied')}`);
     }
   };
 
@@ -420,13 +422,13 @@ export default function MapScreen({ route, navigation }) {
         visible: true,
         type: 'danger',
         icon: 'exit-run',
-        title: 'Keluar dari Room',
-        message: 'Pilih tindakan untuk sesi konvoi ini:',
+        title: t('map.leaderLeaveTitle'),
+        message: t('map.leaderLeaveMsg'),
         buttons: [
-          { text: 'Batal', style: 'cancel' },
-          { text: 'Keluar Saja', style: 'secondary', onPress: cleanupLocal },
+          { text: t('settings.signOutCancel'), style: 'cancel' },
+          { text: t('map.leaderLeaveJust'), style: 'secondary', onPress: cleanupLocal },
           {
-            text: 'Bubarkan Sesi',
+            text: t('map.leaderClose'),
             style: 'destructive',
             onPress: async () => {
               try {
@@ -447,11 +449,11 @@ export default function MapScreen({ route, navigation }) {
         visible: true,
         type: 'warning',
         icon: 'account-remove',
-        title: 'Keluar Room?',
-        message: 'Kamu akan keluar dari pemantauan radar ini.',
+        title: t('map.leaveRoomTitle'),
+        message: t('map.leaveRoomMsg'),
         buttons: [
-          { text: 'Batal', style: 'cancel' },
-          { text: 'Keluar', style: 'destructive', onPress: cleanupAndLeave },
+          { text: t('settings.signOutCancel'), style: 'cancel' },
+          { text: t('map.leaveRoomOk'), style: 'destructive', onPress: cleanupAndLeave },
         ],
       });
     }
@@ -515,12 +517,12 @@ export default function MapScreen({ route, navigation }) {
         visible: true,
         type: 'danger',
         icon: 'alert-decagram',
-        title: 'KIRIM SINYAL SOS?',
-        message: 'Sinyal darurat akan dikirimkan ke seluruh anggota rombongan konvoi!',
+        title: t('map.sosSendTitle'),
+        message: t('map.sosSendMsg'),
         buttons: [
-          { text: 'Batal', style: 'cancel' },
+          { text: t('settings.signOutCancel'), style: 'cancel' },
           {
-            text: 'YA, KIRIM SOS',
+            text: t('map.sosSendYes'),
             style: 'destructive',
             onPress: async () => {
               try {
@@ -533,7 +535,7 @@ export default function MapScreen({ route, navigation }) {
               } catch (_e) {}
               setSosActive(true);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-              showToast('danger', 'SOS AKTIF', 'Sinyal SOS telah dikirimkan ke rombongan.');
+              showToast('danger', t('map.sosSent'), t('map.sosSentMsg'));
               setSosReasonModalVisible(true);
             },
           },
@@ -544,7 +546,7 @@ export default function MapScreen({ route, navigation }) {
         .then(() => {
           setSosActive(false);
           setActiveSosAlertId(null);
-          showToast('success', 'SOS Dibatalkan', 'Sinyal darurat diselesaikan.');
+          showToast('success', 'SOS', t('map.sosCancelToast'));
         })
         .catch((err) => {
           showToast('danger', 'Error', err?.message || 'Gagal membatalkan SOS.');
@@ -846,7 +848,7 @@ export default function MapScreen({ route, navigation }) {
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="alert-decagram" size={26} color={colors.white} />
-          <Text style={styles.sosFabText}>{sosActive ? 'SOS AKTIF' : 'SOS'}</Text>
+          <Text style={styles.sosFabText}>{sosActive ? t('map.sosActive') : t('map.sosBtn')}</Text>
         </TouchableOpacity>
       </Animated.View>
 
@@ -864,7 +866,7 @@ export default function MapScreen({ route, navigation }) {
             style={{ marginRight: spacing.sm }}
           />
           <Text style={styles.navToggleBtnText}>
-            {isNavigating ? 'Akhiri Navigasi' : 'Mulai Perjalanan'}
+            {isNavigating ? t('map.endNav') : t('map.startTrip')}
           </Text>
         </TouchableOpacity>
 
@@ -880,7 +882,7 @@ export default function MapScreen({ route, navigation }) {
             style={{ marginRight: spacing.sm }}
           />
           <Text style={role === 'leader' ? styles.endTripBtnText : styles.leaveTripBtnText}>
-            {role === 'leader' ? 'Selesaikan Perjalanan' : 'Keluar Sesi Convoy'}
+            {role === 'leader' ? t('map.endTrip') : t('map.leaveSession')}
           </Text>
         </TouchableOpacity>
       </View>
