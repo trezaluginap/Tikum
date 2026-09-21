@@ -82,8 +82,28 @@ export default function StatsScreen() {
     active: dayDistances[idx] > 0,
   }));
 
-  // Feed items from real history or mock fallback
-  const displayRides = tripsHistory.length > 0
+  // Real km within the last 7 days
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weeklyKm = tripsHistory
+    .filter((t) => {
+      const ts = t.finished_at || t.started_at;
+      return ts && new Date(ts).getTime() >= weekAgo;
+    })
+    .reduce((acc, t) => acc + Number(t.distance_km ?? t.route_distance_km ?? 0), 0);
+
+  // Badges derived from real data
+  const badgePioneer = totalTrips > 0;
+  const badgeNight = tripsHistory.some((t) => {
+    const ts = t.finished_at || t.started_at;
+    if (!ts) return false;
+    const hr = new Date(ts).getHours();
+    return hr >= 18 || hr < 6;
+  });
+  const badgeSafety = false; // data SOS riwayat belum tersedia dari backend
+
+  // Feed items from real history only (no mock)
+  const hasTrips = tripsHistory.length > 0;
+  const displayRides = hasTrips
     ? tripsHistory.slice(0, 5).map((t, idx) => {
         const dist = Number(t.distance_km ?? t.route_distance_km ?? 0).toFixed(1);
         const durMin = Math.round(Number(t.duration_min ?? t.route_duration_min ?? (t.duration_seconds ? t.duration_seconds / 60 : 0)));
@@ -107,34 +127,11 @@ export default function StatsScreen() {
           type: t.vehicle_type || 'motorcycle',
         };
       })
-    : [
-        {
-          id: '1',
-          title: 'Sunmori Puncak Pass - Kebun Teh',
-          time: 'Kemarin • 07:30 WIB',
-          distance: '45.2 km',
-          duration: '1j 40m',
-          speed: '52 km/h',
-          riders: 8,
-          type: 'motorcycle',
-        },
-        {
-          id: '2',
-          title: 'Coastal Cruise Pantai Pasir Putih PIK 2',
-          time: '3 Hari Lalu • 20:00 WIB',
-          distance: '32.0 km',
-          duration: '1j 15m',
-          speed: '44 km/h',
-          riders: 5,
-          type: 'car',
-        },
-      ];
+    : [];
 
-  // Leaderboard mock items
+  // Leaderboard: user's real totals only + placeholder for the rest
   const topRiders = [
-    { rank: 1, name: displayName, km: '340.5 km', badge: 'Pioneer Lead', isMe: true },
-    { rank: 2, name: 'Dimas Pratama', km: '285.0 km', badge: 'Night Cruiser', isMe: false },
-    { rank: 3, name: 'Budi Santoso', km: '190.2 km', badge: 'Safety Rider', isMe: false },
+    { rank: 1, name: displayName, km: `${totalDistance.toFixed(1)} km`, badge: 'TiKum Rider', isMe: true },
   ];
 
   return (
@@ -168,8 +165,8 @@ export default function StatsScreen() {
           {/* ══ 1. WEEKLY ACTIVITY MINI BAR CHART ══ */}
           <View style={styles.weeklyChartCard}>
             <View style={styles.chartHeaderRow}>
-              <Text style={styles.cardSectionTitle}>Aktivitas Minggu Ini</Text>
-              <Text style={styles.chartTotalVal}>+124 km minggu ini</Text>
+              <Text style={styles.cardSectionTitle}>{t('stats.weekTitle')}</Text>
+              <Text style={styles.chartTotalVal}>{weeklyKm.toFixed(0)} km {t('stats.thisWeek')}</Text>
             </View>
             <View style={styles.barChartContainer}>
               {weeklyData.map((item, idx) => (
@@ -206,7 +203,7 @@ export default function StatsScreen() {
             <View style={styles.metricCard}>
               <MaterialCommunityIcons name="speedometer" size={16} color="#F59E0B" />
               <Text style={styles.metricVal}>{avgSpeed} km/h</Text>
-              <Text style={styles.metricLabel}>Rata-Rata Kecepatan</Text>
+              <Text style={styles.metricLabel}>{t('stats.avgSpeed')}</Text>
             </View>
             <View style={styles.metricCard}>
               <MaterialCommunityIcons name="account-group" size={16} color="#0EA5E9" />
@@ -218,28 +215,34 @@ export default function StatsScreen() {
           {/* ══ 3. RIDER BADGES SHOWCASE ══ */}
           <Text style={styles.sectionHeading}>{t('home.badgesHeading')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.badgesScroll}>
-            <View style={styles.badgeCard}>
-              <View style={[styles.badgeIconCircle, { backgroundColor: 'rgba(99,102,241,0.15)' }]}>
-                <MaterialCommunityIcons name="shield-crown-outline" size={20} color={colors.primary} />
+            <View style={[styles.badgeCard, !badgePioneer && styles.badgeCardLocked]}>
+              <View style={[styles.badgeIconCircle, { backgroundColor: badgePioneer ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)' }]}>
+                <MaterialCommunityIcons name="shield-crown-outline" size={20} color={badgePioneer ? colors.primary : colors.textMuted} />
               </View>
-              <Text style={styles.badgeName}>{t('home.badgePioneer')}</Text>
-              <Text style={styles.badgeStatusText}>UNLOCKED</Text>
+              <Text style={[styles.badgeName, !badgePioneer && { color: colors.textMuted }]}>{t('home.badgePioneer')}</Text>
+              {badgePioneer
+                ? <Text style={styles.badgeStatusText}>UNLOCKED</Text>
+                : <Text style={styles.badgeLockedText}>LOCKED</Text>}
             </View>
 
-            <View style={styles.badgeCard}>
-              <View style={[styles.badgeIconCircle, { backgroundColor: 'rgba(245,158,11,0.15)' }]}>
-                <MaterialCommunityIcons name="weather-night" size={20} color="#F59E0B" />
+            <View style={[styles.badgeCard, !badgeNight && styles.badgeCardLocked]}>
+              <View style={[styles.badgeIconCircle, { backgroundColor: badgeNight ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.05)' }]}>
+                <MaterialCommunityIcons name="weather-night" size={20} color={badgeNight ? '#F59E0B' : colors.textMuted} />
               </View>
-              <Text style={styles.badgeName}>{t('home.badgeNight')}</Text>
-              <Text style={styles.badgeStatusText}>UNLOCKED</Text>
+              <Text style={[styles.badgeName, !badgeNight && { color: colors.textMuted }]}>{t('home.badgeNight')}</Text>
+              {badgeNight
+                ? <Text style={styles.badgeStatusText}>UNLOCKED</Text>
+                : <Text style={styles.badgeLockedText}>LOCKED</Text>}
             </View>
 
-            <View style={styles.badgeCard}>
-              <View style={[styles.badgeIconCircle, { backgroundColor: 'rgba(16,185,129,0.15)' }]}>
-                <MaterialCommunityIcons name="heart-pulse" size={20} color="#10B981" />
+            <View style={[styles.badgeCard, !badgeSafety && styles.badgeCardLocked]}>
+              <View style={[styles.badgeIconCircle, { backgroundColor: badgeSafety ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)' }]}>
+                <MaterialCommunityIcons name="heart-pulse" size={20} color={badgeSafety ? '#10B981' : colors.textMuted} />
               </View>
-              <Text style={styles.badgeName}>{t('home.badgeSafety')}</Text>
-              <Text style={styles.badgeStatusText}>UNLOCKED</Text>
+              <Text style={[styles.badgeName, !badgeSafety && { color: colors.textMuted }]}>{t('home.badgeSafety')}</Text>
+              {badgeSafety
+                ? <Text style={styles.badgeStatusText}>UNLOCKED</Text>
+                : <Text style={styles.badgeLockedText}>LOCKED</Text>}
             </View>
 
             {/* Locked Badge */}
@@ -253,49 +256,56 @@ export default function StatsScreen() {
           </ScrollView>
 
           {/* ══ 4. RECENT CONVOY ACTIVITY FEED (STRAVA STYLE) ══ */}
-          <Text style={styles.sectionHeading}>Riwayat Konvoi Terbaru (Feed)</Text>
-          {displayRides.map((ride) => (
-            <View key={ride.id} style={styles.rideFeedCard}>
-              <View style={styles.rideFeedHeader}>
-                <View style={styles.rideIconBg}>
-                  <MaterialCommunityIcons
-                    name={ride.type === 'motorcycle' ? 'motorbike' : 'car-side'}
-                    size={16}
-                    color={colors.primary}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rideTitle}>{ride.title}</Text>
-                  <Text style={styles.rideTime}>{ride.time}</Text>
-                </View>
-              </View>
-
-              <View style={styles.rideMetricsRow}>
-                <View style={styles.rideMetricCol}>
-                  <Text style={styles.rideMetricVal}>{ride.distance}</Text>
-                  <Text style={styles.rideMetricLabel}>Jarak</Text>
-                </View>
-                <View style={styles.rideMetricDivider} />
-                <View style={styles.rideMetricCol}>
-                  <Text style={styles.rideMetricVal}>{ride.duration}</Text>
-                  <Text style={styles.rideMetricLabel}>Durasi</Text>
-                </View>
-                <View style={styles.rideMetricDivider} />
-                <View style={styles.rideMetricCol}>
-                  <Text style={styles.rideMetricVal}>{ride.speed}</Text>
-                  <Text style={styles.rideMetricLabel}>Rata² Speed</Text>
-                </View>
-                <View style={styles.rideMetricDivider} />
-                <View style={styles.rideMetricCol}>
-                  <Text style={styles.rideMetricVal}>{ride.riders} Member</Text>
-                  <Text style={styles.rideMetricLabel}>Rombongan</Text>
-                </View>
-              </View>
+          <Text style={styles.sectionHeading}>{t('stats.feedHeading')}</Text>
+          {displayRides.length === 0 ? (
+            <View style={styles.emptyFeedContainer}>
+              <MaterialCommunityIcons name="motorbike-off" size={36} color={colors.textMuted} />
+              <Text style={styles.emptyFeedText}>{t('stats.emptyFeed')}</Text>
             </View>
-          ))}
+          ) : (
+            displayRides.map((ride) => (
+              <View key={ride.id} style={styles.rideFeedCard}>
+                <View style={styles.rideFeedHeader}>
+                  <View style={styles.rideIconBg}>
+                    <MaterialCommunityIcons
+                      name={ride.type === 'motorcycle' ? 'motorbike' : 'car-side'}
+                      size={16}
+                      color={colors.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rideTitle}>{ride.title}</Text>
+                    <Text style={styles.rideTime}>{ride.time}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.rideMetricsRow}>
+                  <View style={styles.rideMetricCol}>
+                    <Text style={styles.rideMetricVal}>{ride.distance}</Text>
+                    <Text style={styles.rideMetricLabel}>{t('stats.rideDistance')}</Text>
+                  </View>
+                  <View style={styles.rideMetricDivider} />
+                  <View style={styles.rideMetricCol}>
+                    <Text style={styles.rideMetricVal}>{ride.duration}</Text>
+                    <Text style={styles.rideMetricLabel}>{t('stats.rideDuration')}</Text>
+                  </View>
+                  <View style={styles.rideMetricDivider} />
+                  <View style={styles.rideMetricCol}>
+                    <Text style={styles.rideMetricVal}>{ride.speed}</Text>
+                    <Text style={styles.rideMetricLabel}>{t('stats.rideSpeed')}</Text>
+                  </View>
+                  <View style={styles.rideMetricDivider} />
+                  <View style={styles.rideMetricCol}>
+                    <Text style={styles.rideMetricVal}>{ride.riders} Member</Text>
+                    <Text style={styles.rideMetricLabel}>{t('stats.rideGroup')}</Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
 
           {/* ══ 5. REGIONAL LEADERBOARD TEASER ══ */}
-          <Text style={styles.sectionHeading}>Leaderboard Regional</Text>
+          <Text style={styles.sectionHeading}>{t('stats.leaderboardTitle')}</Text>
           <View style={styles.leaderboardCard}>
             {topRiders.map((item) => (
               <View key={item.rank} style={[styles.leaderboardRow, item.isMe && styles.leaderboardRowMe]}>
@@ -310,6 +320,7 @@ export default function StatsScreen() {
                 <Text style={styles.riderKm}>{item.km}</Text>
               </View>
             ))}
+            <Text style={styles.leaderboardHint}>{t('stats.rankSoon')}</Text>
           </View>
         </View>
         <View style={{ height: 110 }} />
@@ -396,6 +407,8 @@ const styles = StyleSheet.create({
   rideMetricVal: { fontSize: 10, fontFamily: fonts.bold, color: colors.textPrimary },
   rideMetricLabel: { fontSize: 8, fontFamily: fonts.medium, color: colors.textMuted, marginTop: 1 },
   rideMetricDivider: { width: 1, height: 16, backgroundColor: 'rgba(255, 255, 255, 0.08)' },
+  emptyFeedContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.xl },
+  emptyFeedText: { fontSize: fontSize.xs, fontFamily: fonts.medium, color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm, lineHeight: 18 },
 
   // 5. Leaderboard
   leaderboardCard: {
@@ -413,4 +426,14 @@ const styles = StyleSheet.create({
   riderName: { fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.textPrimary },
   riderBadgeLabel: { fontSize: 8, fontFamily: fonts.medium, color: colors.textMuted, marginTop: 1 },
   riderKm: { fontSize: fontSize.xs, fontFamily: fonts.black, color: colors.textPrimary },
+  leaderboardHint: {
+    fontSize: fontSize.xs,
+    fontFamily: fonts.medium,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    marginTop: spacing.sm,
+  },
 });

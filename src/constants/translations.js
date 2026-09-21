@@ -87,6 +87,19 @@ export const TRANSLATIONS = {
       signOutOk: 'KELUAR',
       cacheToast: 'Gagal membersihkan cache peta.',
       cacheToastSuccess: 'Cache peta berhasil dibersihkan.',
+    },
+    stats: {
+      weekTitle: 'Aktivitas Minggu Ini',
+      thisWeek: 'minggu ini',
+      avgSpeed: 'Rata-Rata Kecepatan',
+      feedHeading: 'Riwayat Konvoi Terbaru (Feed)',
+      emptyFeed: 'Belum ada riwayat perjalanan. Mulai touring pertama kamu!',
+      rideDistance: 'Jarak',
+      rideDuration: 'Durasi',
+      rideSpeed: 'Rata² Speed',
+      rideGroup: 'Rombongan',
+      leaderboardTitle: 'Leaderboard Regional',
+      rankSoon: 'Fitur ranking antar pengguna segera hadir.',
     }
   },
   en: {
@@ -177,6 +190,19 @@ export const TRANSLATIONS = {
       signOutOk: 'SIGN OUT',
       cacheToast: 'Failed to clear map cache.',
       cacheToastSuccess: 'Map cache cleared successfully.',
+    },
+    stats: {
+      weekTitle: 'This Week Activity',
+      thisWeek: 'this week',
+      avgSpeed: 'Average Speed',
+      feedHeading: 'Recent Convoy Activity (Feed)',
+      emptyFeed: 'No ride history yet. Start your first touring!',
+      rideDistance: 'Distance',
+      rideDuration: 'Duration',
+      rideSpeed: 'Avg Speed',
+      rideGroup: 'Group',
+      leaderboardTitle: 'Regional Leaderboard',
+      rankSoon: 'Cross-user ranking feature coming soon.',
     }
   },
   ms: {
@@ -267,6 +293,19 @@ export const TRANSLATIONS = {
       signOutOk: 'KELUAR',
       cacheToast: 'Gagal mengosongkan cache peta.',
       cacheToastSuccess: 'Cache peta berjaya dikosongkan.',
+    },
+    stats: {
+      weekTitle: 'Aktiviti Minggu Ini',
+      thisWeek: 'minggu ini',
+      avgSpeed: 'Purata Kelajuan',
+      feedHeading: 'Riwayat Konvoi Terbaru (Feed)',
+      emptyFeed: 'Tiada sejarah perjalanan. Mulakan touring pertama anda!',
+      rideDistance: 'Jarak',
+      rideDuration: 'Tempoh',
+      rideSpeed: 'Purata Speed',
+      rideGroup: 'Rombongan',
+      leaderboardTitle: 'Papan Pendahulu Serantau',
+      rankSoon: 'Ciri ranking antara pengguna akan hadir tidak lama lagi.',
     }
   }
 };
