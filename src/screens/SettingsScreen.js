@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -13,6 +13,7 @@ import { HomeHeader } from '../components/home/HomeHeader';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { loadSettingsPrefs, setDarkMapPref, setNotificationsPref } from '../storage/prefs';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -23,6 +24,25 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeMap, setDarkModeMap] = useState(true);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
+
+  useEffect(() => {
+    loadSettingsPrefs().then((prefs) => {
+      setDarkModeMap(prefs.darkMap);
+      setNotificationsEnabled(prefs.notifications);
+    }).catch(() => {});
+  }, []);
+
+  const toggleDarkMap = async () => {
+    const next = !darkModeMap;
+    setDarkModeMap(next);
+    try { await setDarkMapPref(next); } catch (_err) {}
+  };
+
+  const toggleNotifications = async () => {
+    const next = !notificationsEnabled;
+    setNotificationsEnabled(next);
+    try { await setNotificationsPref(next); } catch (_err) {}
+  };
 
   // ── Overlay Dialog & Toast State ──
   const [dialogConfig, setDialogConfig] = useState({ visible: false });
@@ -67,7 +87,7 @@ export default function SettingsScreen() {
       if (tempKeys.length > 0) {
         await AsyncStorage.multiRemove(tempKeys);
       }
-      showToast('success', t('settings.clearCache'), 'Cache lokasi dan pencarian rute berhasil dibersihkan.');
+      showToast('success', t('settings.clearCache'), t('settings.cacheToastSuccess'));
     } catch (_err) {
       showToast('warning', t('settings.clearCache'), t('settings.cacheToast'));
     }
@@ -101,7 +121,7 @@ export default function SettingsScreen() {
         type="info"
         icon="translate"
         title={t('settings.changeLang')}
-        message="Pilih bahasa / Choose language / 言語を選択:"
+        message={locale === 'id' ? 'Pilih bahasa antarmuka aplikasi:' : locale === 'ms' ? 'Pilih bahasa antara muka aplikasi:' : 'Choose your app interface language:'}
         buttons={[
           {
             text: 'Bahasa Indonesia 🇮🇩',
@@ -109,7 +129,7 @@ export default function SettingsScreen() {
             onPress: () => {
               changeLocale('id');
               setLanguageModalVisible(false);
-              showToast('success', 'Bahasa Diubah', 'Bahasa aplikasi berhasil diubah ke Bahasa Indonesia.');
+              showToast('success', t('settings.changeLang'), t('settings.langChanged'));
             },
           },
           {
@@ -118,7 +138,7 @@ export default function SettingsScreen() {
             onPress: () => {
               changeLocale('en');
               setLanguageModalVisible(false);
-              showToast('success', 'Language Changed', 'App language successfully changed to English.');
+              showToast('success', t('settings.changeLang'), t('settings.langChanged'));
             },
           },
           {
@@ -127,20 +147,11 @@ export default function SettingsScreen() {
             onPress: () => {
               changeLocale('ms');
               setLanguageModalVisible(false);
-              showToast('success', 'Bahasa Ditukar', 'Bahasa aplikasi berjaya ditukar ke Bahasa Melayu.');
+              showToast('success', t('settings.changeLang'), t('settings.langChanged'));
             },
           },
           {
-            text: '日本語 🇯🇵',
-            style: locale === 'ja' ? 'primary' : 'secondary',
-            onPress: () => {
-              changeLocale('ja');
-              setLanguageModalVisible(false);
-              showToast('success', '言語変更', 'アプリの言語が日本語に変更されました。');
-            },
-          },
-          {
-            text: locale === 'id' ? 'BATAL' : locale === 'ms' ? 'BATAL' : locale === 'ja' ? 'キャンセル' : 'CANCEL',
+            text: t('settings.signOutCancel'),
             style: 'secondary',
             onPress: () => setLanguageModalVisible(false),
           },
@@ -194,7 +205,7 @@ export default function SettingsScreen() {
                   <Text style={styles.settingItemSub}>{t('settings.notifSub')}</Text>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => setNotificationsEnabled((prev) => !prev)} activeOpacity={0.8}>
+              <TouchableOpacity onPress={toggleNotifications} activeOpacity={0.8}>
                 <MaterialCommunityIcons
                   name={notificationsEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
                   size={36}
@@ -211,7 +222,7 @@ export default function SettingsScreen() {
                   <Text style={styles.settingItemSub}>{t('settings.darkMapSub')}</Text>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => setDarkModeMap((prev) => !prev)} activeOpacity={0.8}>
+              <TouchableOpacity onPress={toggleDarkMap} activeOpacity={0.8}>
                 <MaterialCommunityIcons
                   name={darkModeMap ? 'toggle-switch' : 'toggle-switch-off-outline'}
                   size={36}
@@ -231,7 +242,7 @@ export default function SettingsScreen() {
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={{ fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.primaryMuted }}>
-                  {locale === 'id' ? 'Indonesia' : locale === 'en' ? 'English' : locale === 'ms' ? 'Melayu' : '日本語'}
+                  {locale === 'id' ? 'Indonesia' : locale === 'en' ? 'English' : 'Melayu'}
                 </Text>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
               </View>

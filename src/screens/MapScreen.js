@@ -32,10 +32,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { fetchValhallaRoute } from '../hooks/useOsrmRoute';
 import { createEcho, disconnectEcho } from '../realtime/echo';
-import {
-  startBackgroundLocationTracking,
+import { startBackgroundLocationTracking,
   stopBackgroundLocationTracking,
 } from '../services/backgroundLocation';
+import { loadSettingsPrefs } from '../storage/prefs';
 import ConvoyDialog from '../components/common/ConvoyDialog';
 import ConvoyToast from '../components/common/ConvoyToast';
 
@@ -62,7 +62,18 @@ export default function MapScreen({ route, navigation }) {
 
   const currentHour = new Date().getHours();
   const isNight = currentHour >= 18 || currentHour < 6;
-  const mapStyleUrl = isNight ? TIKUM_DARK_STYLE : TIKUM_STREETS_STYLE;
+  const [darkMapPref, setDarkMapPrefState] = useState(null);
+  const notificationsPrefRef = useRef(true);
+
+  useEffect(() => {
+    loadSettingsPrefs().then((prefs) => {
+      setDarkMapPrefState(prefs.darkMap);
+      notificationsPrefRef.current = prefs.notifications;
+    }).catch(() => {});
+  }, []);
+
+  const darkMap = darkMapPref !== null ? darkMapPref : isNight;
+  const mapStyleUrl = darkMap ? TIKUM_DARK_STYLE : TIKUM_STREETS_STYLE;
 
   const displayName = user?.profile?.display_name || user?.user_metadata?.display_name || 'Pengguna';
 
@@ -118,9 +129,11 @@ export default function MapScreen({ route, navigation }) {
         longitude: myLocation?.longitude ?? null,
       });
       setSosUsers((prev) => ({ ...prev, [user?.id]: reasonLabel }));
-      Vibration.vibrate([0, 300, 200, 300]);
       showToast('danger', '⚠️ DEKLARASI SOS', `Alasan bantuan: "${reasonLabel}" dikirim ke rombongan.`);
-      sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
+      if (notificationsPrefRef.current) {
+        Vibration.vibrate([0, 300, 200, 300]);
+        sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
+      }
     } catch (_err) {}
   };
 
@@ -275,10 +288,10 @@ export default function MapScreen({ route, navigation }) {
               showToast('danger', '⚠️ SINYAL SOS DARURAT!', `${userName}: "${reasonText}"`);
 
               // Physical Device Hardware Vibration (Pattern: 500ms vibrate, 200ms pause)
-              Vibration.vibrate([0, 500, 200, 500, 200, 800]);
+              if (notificationsPrefRef.current) Vibration.vibrate([0, 500, 200, 500, 200, 800]);
 
               // Voice Safety Alert with Reason
-              sayOutLoud(`Peringatan darurat! Sinyal S O S aktif dari ${userName}. Alasan: ${reasonText}`);
+              if (notificationsPrefRef.current) sayOutLoud(`Peringatan darurat! Sinyal S O S aktif dari ${userName}. Alasan: ${reasonText}`);
             }
           })
           .listen('.sos.resolved', (e) => {
@@ -354,7 +367,7 @@ export default function MapScreen({ route, navigation }) {
       const p = userProfiles[friendLoc.user_id] || { name: 'Anggota' };
       laggingWarnedRef.current[friendLoc.user_id] = true;
       showToast('warning', '⚠️ Rombongan Terpisah', `${p.name} tertinggal ${dist} km di belakang.`);
-      Vibration.vibrate([0, 300]);
+      if (notificationsPrefRef.current) Vibration.vibrate([0, 300]);
       setTimeout(() => { delete laggingWarnedRef.current[friendLoc.user_id]; }, 120000);
     }
   };
