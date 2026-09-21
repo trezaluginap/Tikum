@@ -18,17 +18,13 @@ try {
   WebView = null;
 }
 
-// Never instantiate react-native-maps: project uses MapLibre/Leaflet only.
 const MapViewNative = null;
 const MapViewComp = MapLibreGL?.MapView || MapLibreGL?.default?.MapView;
 const CameraComp = MapLibreGL?.Camera || MapLibreGL?.default?.Camera;
 
-// OpenStreetMap Standard Tiles & OpenTopoMap (100% Free, No API Key Required)
 export const TIKUM_DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 export const TIKUM_STREETS_STYLE = 'https://tiles.openfreemap.org/styles/bright';
 
-// ── WebView Leaflet Bridge ──
-// Exposes mapRef-compatible API that bridges to Leaflet via postMessage
 function LeafletMapBridge(props, ref) {
   const {
     style,
@@ -36,9 +32,9 @@ function LeafletMapBridge(props, ref) {
     centerLng,
     zoom,
     routeCoords = [],
+    pickupRouteCoords = [],
     markers = [],
     myLocation,
-    onPress,
   } = props;
 
   const webViewRef = useRef(null);
@@ -49,7 +45,6 @@ function LeafletMapBridge(props, ref) {
     }
   };
 
-  // Expose mapRef-compatible API
   useImperativeHandle(ref, () => ({
     animateToRegion: (region) => {
       postCmd('panTo', { lat: region.latitude, lng: region.longitude, zoom: 16 });
@@ -76,41 +71,37 @@ function LeafletMapBridge(props, ref) {
     },
   }));
 
-  // Update user location marker in real-time
   useEffect(() => {
     if (myLocation) {
       postCmd('updateUser', { lat: myLocation.latitude, lng: myLocation.longitude, heading: myLocation.heading || 0 });
     }
-  }, [myLocation?.latitude, myLocation?.longitude]);
+  }, [myLocation?.latitude, myLocation?.longitude, myLocation?.heading]);
 
-  // Update route polyline
   useEffect(() => {
     if (routeCoords.length > 1) {
-      postCmd('setRoute', {
-        coords: routeCoords.map((c) => [c.latitude, c.longitude]),
-      });
+      postCmd('setRoute', { coords: routeCoords.map((c) => [c.latitude, c.longitude]) });
     }
-  }, [routeCoords.length]);
+  }, [routeCoords]);
 
-  // Update markers
+  useEffect(() => {
+    if (pickupRouteCoords.length > 1) {
+      postCmd('setPickupRoute', { coords: pickupRouteCoords.map((c) => [c.latitude, c.longitude]) });
+    }
+  }, [pickupRouteCoords]);
+
   useEffect(() => {
     if (markers.length > 0) {
       postCmd('setMarkers', { markers });
     }
-  }, [markers.length]);
+  }, [markers]);
 
   const markersJSON = JSON.stringify(markers.map((m) => ({
-    id: m.id,
-    lat: m.latitude,
-    lng: m.longitude,
-    label: m.label || '',
-    color: m.color || '#6366F1',
-    icon: m.icon || 'circle',
+    id: m.id, lat: m.latitude, lng: m.longitude,
+    label: m.label || '', color: m.color || '#6366F1', icon: m.icon || 'circle',
   })));
 
-  const routeJSON = JSON.stringify(
-    routeCoords.map((c) => [c.latitude, c.longitude])
-  );
+  const routeJSON = JSON.stringify(routeCoords.map((c) => [c.latitude, c.longitude]));
+  const pickupRouteJSON = JSON.stringify(pickupRouteCoords.map((c) => [c.latitude, c.longitude]));
 
   const leafletHTML = `
     <!DOCTYPE html>
@@ -118,32 +109,33 @@ function LeafletMapBridge(props, ref) {
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\\/script>
         <style>
           html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; background: #0F172A; }
           .gps-marker {
-            width: 20px; height: 20px; background: #6366F1;
+            width: 24px; height: 24px; background: #6366F1;
             border: 3px solid #FFF; border-radius: 50%;
-            box-shadow: 0 0 14px rgba(99,102,241,0.7);
+            box-shadow: 0 0 16px rgba(99,102,241,0.8);
           }
           .gps-pulse {
-            width: 40px; height: 40px; border-radius: 50%;
-            background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.4);
-            position: absolute; top: -10px; left: -10px;
+            width: 46px; height: 46px; border-radius: 50%;
+            background: rgba(99,102,241,0.25); border: 1px solid rgba(99,102,241,0.5);
+            position: absolute; top: -11px; left: -11px;
             animation: pulse 2s infinite;
           }
           @keyframes pulse {
-            0% { transform: scale(1); opacity: 0.7; }
-            100% { transform: scale(2); opacity: 0; }
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(2.2); opacity: 0; }
           }
-          .origin-marker { background: #10B981; border: 2px solid #FFF; width: 14px; height: 14px; border-radius: 50%; }
-          .dest-marker { background: #EF4444; border: 2px solid #FFF; width: 14px; height: 14px; border-radius: 50%; }
-          .friend-marker { background: #10B981; border: 2px solid #FFF; width: 16px; height: 16px; border-radius: 50%; }
-          .poi-marker { background: #F59E0B; border: 2px solid #FFF; width: 14px; height: 14px; border-radius: 50%; }
+          .origin-marker { background: #10B981; border: 2px solid #FFF; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 2px 8px rgba(16,185,129,0.5); }
+          .dest-marker { background: #EF4444; border: 2px solid #FFF; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 2px 8px rgba(239,68,68,0.5); }
+          .friend-marker { background: #10B981; border: 2px solid #FFF; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 2px 8px rgba(16,185,129,0.5); }
+          .sos-friend-marker { background: #EF4444; border: 2px solid #FFF; width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 12px rgba(239,68,68,0.9); animation: pulse 1s infinite; }
+          .poi-marker { background: #F59E0B; border: 2px solid #FFF; width: 16px; height: 16px; border-radius: 50%; }
           .marker-label {
-            background: rgba(15,23,42,0.85); color: #FFF; font-size: 10px;
+            background: rgba(15,23,42,0.9); color: #FFF; font-size: 10px;
             padding: 2px 6px; border-radius: 4px; white-space: nowrap;
-            font-family: sans-serif; font-weight: 600;
+            font-family: sans-serif; font-weight: 700; border: 1px solid rgba(255,255,255,0.15);
           }
         </style>
       </head>
@@ -155,36 +147,46 @@ function LeafletMapBridge(props, ref) {
 
           L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-          // User GPS marker
           var userMarker = L.marker([${centerLat}, ${centerLng}], {
             icon: L.divIcon({
               className: '',
               html: '<div class="gps-pulse"></div><div class="gps-marker"></div>',
-              iconSize: [20, 20], iconAnchor: [10, 10]
+              iconSize: [24, 24], iconAnchor: [12, 12]
             })
           }).addTo(map);
 
-          // Route polyline
           var routeLine = null;
+          var pickupRouteLine = null;
+
           var initRoute = ${routeJSON};
           if (initRoute && initRoute.length > 1) {
-            routeLine = L.polyline(initRoute, { color: '#6366F1', weight: 5, opacity: 0.85 }).addTo(map);
+            routeLine = L.polyline(initRoute, { color: '#6366F1', weight: 6, opacity: 0.9 }).addTo(map);
             map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
           }
 
-          // Static markers
+          var initPickup = ${pickupRouteJSON};
+          if (initPickup && initPickup.length > 1) {
+            pickupRouteLine = L.polyline(initPickup, { color: '#0EA5E9', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
+          }
+
           var staticMarkers = {};
           var initMarkers = ${markersJSON};
-          initMarkers.forEach(function(m) {
-            var cls = m.icon === 'origin' ? 'origin-marker' : m.icon === 'dest' ? 'dest-marker' : m.icon === 'friend' ? 'friend-marker' : 'poi-marker';
-            var mk = L.marker([m.lat, m.lng], {
-              icon: L.divIcon({ className: cls, iconSize: [14, 14], iconAnchor: [7, 7] })
-            }).addTo(map);
-            if (m.label) mk.bindTooltip(m.label, { permanent: true, direction: 'bottom', className: 'marker-label', offset: [0, 8] });
-            staticMarkers[m.id] = mk;
-          });
 
-          // RN postMessage handler
+          function renderMarkers(mList) {
+            Object.values(staticMarkers).forEach(function(m) { map.removeLayer(m); });
+            staticMarkers = {};
+            mList.forEach(function(m) {
+              var cls = m.icon === 'origin' ? 'origin-marker' : m.icon === 'dest' ? 'dest-marker' : m.icon === 'friend' ? 'friend-marker' : m.icon === 'sos' ? 'sos-friend-marker' : 'poi-marker';
+              var mk = L.marker([m.lat, m.lng], {
+                icon: L.divIcon({ className: cls, iconSize: [18, 18], iconAnchor: [9, 9] })
+              }).addTo(map);
+              if (m.label) mk.bindTooltip(m.label, { permanent: true, direction: 'bottom', className: 'marker-label', offset: [0, 8] });
+              staticMarkers[m.id] = mk;
+            });
+          }
+
+          renderMarkers(initMarkers);
+
           document.addEventListener('message', function(e) { handleMsg(e); });
           window.addEventListener('message', function(e) { handleMsg(e); });
 
@@ -201,23 +203,21 @@ function LeafletMapBridge(props, ref) {
                 userMarker.setLatLng([d.lat, d.lng]);
               } else if (d.cmd === 'setRoute') {
                 if (routeLine) map.removeLayer(routeLine);
-                routeLine = L.polyline(d.coords, { color: '#6366F1', weight: 5, opacity: 0.85 }).addTo(map);
-                map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+                if (d.coords && d.coords.length > 1) {
+                  routeLine = L.polyline(d.coords, { color: '#6366F1', weight: 6, opacity: 0.9 }).addTo(map);
+                  map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+                }
+              } else if (d.cmd === 'setPickupRoute') {
+                if (pickupRouteLine) map.removeLayer(pickupRouteLine);
+                if (d.coords && d.coords.length > 1) {
+                  pickupRouteLine = L.polyline(d.coords, { color: '#0EA5E9', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
+                }
               } else if (d.cmd === 'setMarkers') {
-                Object.values(staticMarkers).forEach(function(m) { map.removeLayer(m); });
-                staticMarkers = {};
-                d.markers.forEach(function(m) {
-                  var cls = m.icon === 'origin' ? 'origin-marker' : m.icon === 'dest' ? 'dest-marker' : m.icon === 'friend' ? 'friend-marker' : 'poi-marker';
-                  var mk = L.marker([m.lat, m.lng], {
-                    icon: L.divIcon({ className: cls, iconSize: [14, 14], iconAnchor: [7, 7] })
-                  }).addTo(map);
-                  if (m.label) mk.bindTooltip(m.label, { permanent: true, direction: 'bottom', className: 'marker-label', offset: [0, 8] });
-                  staticMarkers[m.id] = mk;
-                });
+                renderMarkers(d.markers || []);
               }
             } catch(_e) {}
           }
-        <\/script>
+        <\\/script>
       </body>
     </html>
   `;
@@ -239,6 +239,17 @@ function LeafletMapBridge(props, ref) {
         style={styles.map}
         scrollEnabled={false}
         javaScriptEnabled={true}
+        onLoadEnd={() => {
+          if (routeCoords.length > 1) {
+            postCmd('setRoute', { coords: routeCoords.map((c) => [c.latitude, c.longitude]) });
+          }
+          if (pickupRouteCoords.length > 1) {
+            postCmd('setPickupRoute', { coords: pickupRouteCoords.map((c) => [c.latitude, c.longitude]) });
+          }
+          if (markers.length > 0) {
+            postCmd('setMarkers', { markers });
+          }
+        }}
       />
     </View>
   );
@@ -256,8 +267,8 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
     children,
     onPress,
     styleURL = TIKUM_DARK_STYLE,
-    // WebView-specific props
     routeCoords = [],
+    pickupRouteCoords = [],
     markers = [],
     myLocation,
   } = props;
@@ -266,7 +277,6 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
   const centerLng = customCenter?.longitude || initialRegion?.longitude || myLocation?.longitude || 107.6191;
   const zoom = customZoom !== undefined ? customZoom : 13;
 
-  // 1. MapLibre Native
   if (MapViewComp) {
     return (
       <View style={[styles.container, style]}>
@@ -293,7 +303,6 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
     );
   }
 
-  // 2. react-native-maps Native
   if (MapViewNative) {
     return (
       <View style={[styles.container, style]}>
@@ -317,7 +326,6 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
     );
   }
 
-  // 3. WebView Leaflet (full interactive bridge)
   return (
     <LeafletMap
       ref={ref}
@@ -326,6 +334,7 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
       centerLng={centerLng}
       zoom={zoom}
       routeCoords={routeCoords}
+      pickupRouteCoords={pickupRouteCoords}
       markers={markers}
       myLocation={myLocation}
       onPress={onPress}
@@ -335,10 +344,6 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
 
 const TiKumMap = forwardRef(TiKumMapInner);
 export default TiKumMap;
-
-// ── Sub-components for Native engines (MapLibre / react-native-maps) ──
-// These are only rendered as children when a native engine is active.
-// In WebView mode, data flows via props (routeCoords, markers).
 
 export function TiKumMarker({ id, coordinate, children, title }) {
   if (!coordinate) return null;
@@ -371,7 +376,7 @@ export function TiKumMarker({ id, coordinate, children, title }) {
   );
 }
 
-export function TiKumPolyline({ id, coordinates, strokeColor = '#6366F1', strokeWidth = 4 }) {
+export function TiKumPolyline({ id, coordinates, strokeColor = '#6366F1', strokeWidth = 4, lineDashPattern }) {
   if (!coordinates || coordinates.length < 2) return null;
 
   if (MapViewNative) {
@@ -382,6 +387,7 @@ export function TiKumPolyline({ id, coordinates, strokeColor = '#6366F1', stroke
           coordinates={coordinates}
           strokeColor={strokeColor}
           strokeWidth={strokeWidth}
+          lineDashPattern={lineDashPattern}
         />
       );
     } catch (_e) { return null; }
@@ -408,6 +414,7 @@ export function TiKumPolyline({ id, coordinates, strokeColor = '#6366F1', stroke
           lineWidth: strokeWidth,
           lineCap: 'round',
           lineJoin: 'round',
+          ...(lineDashPattern ? { lineDasharray: lineDashPattern } : {}),
         }}
       />
     </ShapeSourceComp>

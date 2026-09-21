@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -17,7 +18,6 @@ import {
   Vibration,
   View,
   Image,
-  Linking,
 } from 'react-native';
 import TiKumMap, { TIKUM_DARK_STYLE, TIKUM_STREETS_STYLE, TiKumMarker, TiKumPolyline } from '../components/map/TiKumMap';
 import ConvoyRadarSheet from '../components/map/ConvoyRadarSheet';
@@ -54,8 +54,7 @@ export default function MapScreen({ route, navigation }) {
   const [friendsLocations, setFriendsLocations] = useState([]);
   const [routeCoords, setRouteCoords] = useState([]);
   const [routeSummary, setRouteSummary] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
-  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [pickupRouteCoords, setPickupRouteCoords] = useState([]);
   const [initialRegion, setInitialRegion] = useState({
     latitude: -6.9175, longitude: 107.6191,
     latitudeDelta: 0.1, longitudeDelta: 0.1,
@@ -70,7 +69,6 @@ export default function MapScreen({ route, navigation }) {
   // ── Decode routing mode ──
   const encodedVC = vehicleCount || 0;
   const modeCode = encodedVC >= 1000 ? Math.floor(encodedVC / 1000) : 2;
-  const decodedVehicleCount = encodedVC >= 1000 ? (encodedVC % 1000) : encodedVC;
   const initialRoutingMode = modeCode === 1 ? 'motorcycle' : modeCode === 3 ? 'auto_no_toll' : 'auto_toll';
 
   // ── Routing Mode & In-App Navigation ──
@@ -78,7 +76,6 @@ export default function MapScreen({ route, navigation }) {
 
   // ── Interactive Animations ──
   const sosPulseAnim = useRef(new Animated.Value(1)).current;
-  const tbtSlideAnim = useRef(new Animated.Value(-100)).current;
 
   useEffect(() => {
     Animated.loop(
@@ -98,8 +95,6 @@ export default function MapScreen({ route, navigation }) {
   }, []);
 
   const [routeLoading, setRouteLoading] = useState(false);
-  const [navRouteCoords, setNavRouteCoords] = useState([]);
-  const [navRouteSummary, setNavRouteSummary] = useState(null);
 
   // ── Navigation Mode & Convoy Radar States ──
   const [isNavigating, setIsNavigating] = useState(false);
@@ -122,7 +117,10 @@ export default function MapScreen({ route, navigation }) {
         latitude: myLocation?.latitude ?? null,
         longitude: myLocation?.longitude ?? null,
       });
+      setSosUsers((prev) => ({ ...prev, [user?.id]: reasonLabel }));
+      Vibration.vibrate([0, 300, 200, 300]);
       showToast('danger', '⚠️ DEKLARASI SOS', `Alasan bantuan: "${reasonLabel}" dikirim ke rombongan.`);
+      sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
     } catch (_err) {}
   };
 
@@ -133,6 +131,13 @@ export default function MapScreen({ route, navigation }) {
   const showToast = (type, title, message, duration = 4000) => {
     setToastConfig({ visible: true, type, title, message });
     setTimeout(() => setToastConfig((prev) => ({ ...prev, visible: false })), duration);
+  };
+
+  const sayOutLoud = (text) => {
+    try {
+      Speech.stop();
+      Speech.speak(text, { language: 'id-ID', rate: 0.9, pitch: 1.1 });
+    } catch (_speechErr) {}
   };
 
   // ── User Profiles Cache ──
@@ -167,7 +172,6 @@ export default function MapScreen({ route, navigation }) {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          if (isMounted) setPermissionDenied(true);
           return;
         }
 
@@ -265,19 +269,16 @@ export default function MapScreen({ route, navigation }) {
           })
           .listen('.sos.triggered', (e) => {
             if (isMounted && e?.sos_alert) {
-              const reasonText = e.sos_alert.note || e.sos_alert.reason || 'Bantuan Darurat';
+              const reasonText = e.sos_alert.note || e.sos_alert.message || e.sos_alert.reason || 'Bantuan Darurat';
               setSosUsers(prev => ({ ...prev, [e.sos_alert.user_id]: reasonText }));
               const userName = e.sos_alert.user?.profile?.display_name || 'Anggota rombongan';
               showToast('danger', '⚠️ SINYAL SOS DARURAT!', `${userName}: "${reasonText}"`);
-              
+
               // Physical Device Hardware Vibration (Pattern: 500ms vibrate, 200ms pause)
               Vibration.vibrate([0, 500, 200, 500, 200, 800]);
 
               // Voice Safety Alert with Reason
-              try {
-                const Speech = require('expo-speech');
-                Speech.speak(`Peringatan darurat! Sinyal S O S aktif dari ${userName}. Alasan: ${reasonText}`, { language: 'id-ID', rate: 0.9, pitch: 1.1 });
-              } catch (_err) {}
+              sayOutLoud(`Peringatan darurat! Sinyal S O S aktif dari ${userName}. Alasan: ${reasonText}`);
             }
           })
           .listen('.sos.resolved', (e) => {
@@ -343,6 +344,25 @@ export default function MapScreen({ route, navigation }) {
     });
   };
 
+  const laggingWarnedRef = useRef({});
+
+  const maybeWarnLaggingMember = (friendLoc) => {
+    if (!friendLoc || !myLocation) return;
+    if (laggingWarnedRef.current[friendLoc.user_id]) return;
+    const dist = getDistance(myLocation.latitude, myLocation.longitude, friendLoc.latitude, friendLoc.longitude);
+    if (parseFloat(dist) > 1.5) {
+      const p = userProfiles[friendLoc.user_id] || { name: 'Anggota' };
+      laggingWarnedRef.current[friendLoc.user_id] = true;
+      showToast('warning', '⚠️ Rombongan Terpisah', `${p.name} tertinggal ${dist} km di belakang.`);
+      Vibration.vibrate([0, 300]);
+      setTimeout(() => { delete laggingWarnedRef.current[friendLoc.user_id]; }, 120000);
+    }
+  };
+
+  useEffect(() => {
+    friendsLocations.forEach((f) => maybeWarnLaggingMember(f));
+  }, [friendsLocations, myLocation?.latitude, myLocation?.longitude]);
+
   // ── Handlers ──
   const handleCopyPin = async () => {
     if (!pin) return;
@@ -364,10 +384,6 @@ export default function MapScreen({ route, navigation }) {
     } catch (err) {
       console.error('Share error:', err);
     }
-  };
-
-  const handleOpenSettings = () => {
-    Linking.openSettings();
   };
 
   const handleLeaveRoom = () => {
@@ -454,12 +470,6 @@ export default function MapScreen({ route, navigation }) {
     const distance = R * c; 
     return distance.toFixed(1);
   };
-
-  const memberCount = friendsLocations.length + 1;
-
-  const distanceToTikum = myLocation && origin
-    ? parseFloat(getDistance(myLocation.latitude, myLocation.longitude, origin.latitude, origin.longitude))
-    : null;
 
   const handleToggleNavigation = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -551,13 +561,14 @@ export default function MapScreen({ route, navigation }) {
     if (destination) m.push({ id: 'dest', latitude: destination.latitude, longitude: destination.longitude, label: destinationName || 'Tujuan', color: '#EF4444', icon: 'dest' });
     friendsLocations.forEach((f) => {
       const p = userProfiles[f.user_id] || { name: 'Member' };
-      m.push({ id: `friend-${f.user_id}`, latitude: f.latitude, longitude: f.longitude, label: p.name, color: '#10B981', icon: 'friend' });
+      const isSos = !!sosUsers[f.user_id];
+      m.push({ id: `friend-${f.user_id}`, latitude: f.latitude, longitude: f.longitude, label: p.name, color: '#10B981', icon: isSos ? 'sos' : 'friend' });
     });
     poiMarkers.forEach((poi) => {
       m.push({ id: poi.id, latitude: poi.latitude, longitude: poi.longitude, label: poi.name, color: '#F59E0B', icon: 'poi' });
     });
     return m;
-  }, [origin, destination, friendsLocations, poiMarkers, userProfiles, originName, destinationName]);
+  }, [origin, destination, friendsLocations, poiMarkers, userProfiles, sosUsers, originName, destinationName]);
 
   // ── Auto-fetch OSRM route if preloadedRoute empty but origin & destination exist ──
   useEffect(() => {
@@ -588,6 +599,33 @@ export default function MapScreen({ route, navigation }) {
     })();
     return () => { cancelled = true; };
   }, [origin?.latitude, destination?.latitude, routingMode]);
+
+  // ── Auto-fetch pickup route (rider's GPS → meetup point TiKum) ──
+  useEffect(() => {
+    if (!myLocation || !origin || pickupRouteCoords.length > 0) return;
+
+    const meetupDist = getDistance(myLocation.latitude, myLocation.longitude, origin.latitude, origin.longitude);
+    if (Number(meetupDist) < 1.0) return; // sudah di titik kumpul
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await fetchValhallaRoute(myLocation, origin, routingMode);
+        if (!cancelled && result?.routeCoords?.length > 1) {
+          setPickupRouteCoords(result.routeCoords);
+          if (mapRef.current?.fitToCoordinates) {
+            mapRef.current.fitToCoordinates(result.routeCoords, {
+              edgePadding: { top: 120, right: 50, bottom: 280, left: 50 },
+              animated: true,
+            });
+          }
+        }
+      } catch (err) {
+        console.log('[PickupRoute] auto-fetch err:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [myLocation?.latitude, myLocation?.longitude, origin?.latitude, origin?.longitude]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -626,21 +664,16 @@ export default function MapScreen({ route, navigation }) {
         zoomLevel={15}
         styleURL={mapStyleUrl}
         routeCoords={routeCoords}
+        pickupRouteCoords={pickupRouteCoords}
         markers={allMapMarkers}
         myLocation={myLocation}
       >
         {/* Native engine children (ignored in WebView mode) */}
+        {pickupRouteCoords.length > 1 && (
+          <TiKumPolyline id="pickup-route" coordinates={pickupRouteCoords} strokeColor="#0EA5E9" strokeWidth={3.5} lineDashPattern={[1, 4]} />
+        )}
         {routeCoords.length > 0 && (
           <TiKumPolyline id="main-route" coordinates={routeCoords} strokeColor={colors.primary} strokeWidth={4} />
-        )}
-
-        {navRouteCoords.length > 0 && (
-          <TiKumPolyline
-            id="nav-route"
-            coordinates={navRouteCoords}
-            strokeColor="#F59E0B"
-            strokeWidth={3}
-          />
         )}
 
         {origin && (
@@ -838,14 +871,6 @@ export default function MapScreen({ route, navigation }) {
           </Text>
         </TouchableOpacity>
       </View>
-
-      {/* ERROR */}
-      {errorMsg && (
-        <View style={styles.errorBanner}>
-          <MaterialCommunityIcons name="alert-circle" size={16} color={colors.danger} />
-          <Text style={styles.errorText}>{errorMsg}</Text>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -950,15 +975,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     zIndex: 30,
   },
-
-  errorBanner: {
-    position: 'absolute', top: 105, left: spacing.xl, right: spacing.xl,
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: colors.dangerLight, borderRadius: radius.md,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.md,
-    zIndex: 50,
-  },
-  errorText: { fontSize: fontSize.sm, fontFamily: fonts.medium, color: colors.danger, flex: 1 },
 
   sosMarkerDot: {
     backgroundColor: colors.danger,
