@@ -9,7 +9,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)](https://docs.docker.com/compose/)
 
 > **English summary:**
-> Tikum is a touring companion app for riding communities. Users create trip rooms, invite members via a 6-digit PIN, track the convoy's live positions on the map, and broadcast SOS alerts in emergencies. This is a monorepo: an Expo (React Native) mobile app in `mobile/` and a Laravel 13 REST + WebSocket API in `backend/` (PostgreSQL 17, Redis 7, Reverb), fully containerized with Docker Compose.
+> Tikum is a touring companion app for riding communities. Users create trip rooms, invite members via PIN, track the convoy's live positions on the map, and broadcast SOS alerts in emergencies. Built with an Expo (React Native) mobile frontend and a Laravel 13 REST + WebSocket backend (PostgreSQL 17, Redis 7, Reverb), fully containerized with Docker Compose.
 
 ---
 
@@ -31,56 +31,41 @@
 
 ## 1. Tentang Proyek
 
-Tikum adalah aplikasi mobile untuk komunitas touring motor: satu room merepresentasikan satu rombongan perjalanan. Host membuat room dan membagikan PIN 6-digit, anggota bergabung, dan selama sesi aktif posisi tiap anggota terpantau real-time di peta. Jika terjadi keadaan darurat, anggota dapat memicu SOS alert yang ter-broadcast ke seluruh anggota room. Setelah perjalanan selesai, host menutup room dan riwayat perjalanan tersimpan untuk dilihat kembali.
+Tikum adalah aplikasi mobile untuk komunitas touring motor: satu room merepresentasikan satu rombongan perjalanan. Host membuat room dan membagikan PIN, anggota bergabung, dan selama sesi aktif posisi tiap anggota terpantau real-time di peta. Jika terjadi keadaan darurat, anggota dapat memicu SOS alert yang ter-broadcast ke seluruh anggota room. Setelah perjalanan selesai, host menutup room dan riwayat perjalanan tersimpan untuk dilihat kembali beserta statistiknya.
 
-Repo ini adalah monorepo dengan dua bagian utama:
-
-- **`mobile/`** — aplikasi Expo (React Native): auth, room, peta live, SOS, riwayat.
-- **`backend/`** — API Laravel 13: REST + auth Sanctum + WebSocket Reverb, database PostgreSQL, cache/queue Redis.
-
-**Alur bisnis utama: Register/Login → Buat/Gabung room via PIN → Live tracking di peta selama sesi aktif → SOS jika darurat → Tutup room → Lihat riwayat perjalanan.**
-
-> Dokumentasi khusus frontend (setup cepat + env mobile) juga tersedia di [`mobile/README.md`](mobile/README.md), dan catatan integrasi di [`mobile/FRONTEND_BACKEND_INTEGRATION.md`](mobile/FRONTEND_BACKEND_INTEGRATION.md).
+**Alur bisnis utama: Register/Login → Buat/Gabung room via PIN → Live tracking di peta selama sesi aktif → SOS jika darurat → Tutup room → Lihat riwayat & statistik.**
 
 ---
 
 ## 2. Tabel Fitur
 
-### A. Autentikasi & Akun (`mobile/src/screens/`, `mobile/src/api/auth.api.js`)
+### A. Autentikasi & Akun
 
 | Fitur | Layar | Keterangan |
 | :--- | :--- | :--- |
-| Register & Login | `Login` / `Register` | Registrasi, login, token Sanctum disimpan aman (`storage/tokenStorage`) |
-| Lupa & Reset Password | `ResetPassword` + `ForgotPasswordModal` | Alur reset via API Laravel |
-| Profil & Avatar | `Profile` | Lihat/ubah profil, upload foto avatar (`profile.api.js`) |
-| Auth Guard | `App.js` | Session check + auto-redirect login; token dihapus otomatis saat `401` |
+| Register & Login | `Login` / `Register` | Registrasi, login, lupa & reset password via API Sanctum |
+| Profil & Avatar | `Profile` | Lihat/ubah profil, upload foto avatar |
+| Pengaturan & Bahasa | `Settings` | Pengaturan aplikasi, bilingual Indonesia/Inggris |
 
-### B. Room & Trip Session (`mobile/src/components/home/`, `mobile/src/api/rooms.api.js`)
+### B. Room & Trip Session
 
-| Fitur | Komponen | Keterangan |
+| Fitur | Layar | Keterangan |
 | :--- | :--- | :--- |
-| Buat Room | `CreateRoomModal` | Host membuat room baru (PIN 6-digit) + trip session aktif |
-| Gabung via PIN | `JoinRoomModal` | Anggota bergabung dengan PIN room |
-| Trip Aktif | `ActiveTripsCard` | Daftar sesi perjalanan yang sedang berjalan di Home |
+| Buat Room | `Home` → CreateRoomModal | Host membuat room baru + trip session aktif |
+| Gabung via PIN | `Home` → JoinRoomModal | Anggota bergabung dengan PIN room |
+| Daftar Anggota | Room detail | Anggota aktif room + peran host/member |
 | Keluar / Tutup Room | Room detail | Anggota leave; host menutup room yang sedang aktif |
-| Tips | `TipsCard` | Panduan singkat di Home |
+| Trip Aktif | `Home` → ActiveTripsCard | Daftar sesi perjalanan yang sedang berjalan |
 
-### C. Peta, Tracking & SOS (`mobile/src/screens/MapScreen.js`, `mobile/src/services/backgroundLocation.js`)
+### C. Peta, Tracking & SOS
 
-| Fitur | Keterangan |
-| :--- | :--- |
-| Peta Live | Posisi anggota rombongan real-time (`react-native-maps`) + marker realtime via Reverb (`realtime/echo.js`) |
-| Preview Rute | Rute konvoi via Valhalla (`hooks/useOsrmRoute.js`) |
-| Cari Lokasi | Pencarian lokasi via Nominatim/OpenStreetMap (`hooks/useLocationSearch.js`) |
-| Background Location | Tracking lokasi tetap jalan saat aplikasi di-minimize (expo-task-manager) |
-| Status Jaringan | Indikator konektivitas (`hooks/useNetworkStatus.js`) |
-| SOS Alert | Tombol darurat → broadcast ke anggota; resolve saat aman (`sos.api.js`) |
-
-### D. Riwayat (`mobile/src/components/home/HistoryModal.js`, `mobile/src/api/history.api.js`)
-
-| Fitur | Keterangan |
-| :--- | :--- |
-| Riwayat Trip | Histori perjalanan dari `GET /api/history/trips`, dibuka dari Home |
+| Fitur | Layar | Keterangan |
+| :--- | :--- | :--- |
+| Peta Live | `Map` | Posisi anggota rombongan real-time (MapLibre) |
+| Rute & Destinasi | `Destination` | Pencarian lokasi + rute perjalanan (OSRM) |
+| Background Location | — | Tracking lokasi berjalan di background via task manager |
+| SOS Alert | `Map` | Picu SOS → broadcast ke anggota; resolve saat aman |
+| Riwayat & Statistik | `Home` (HistoryModal) / `Stats` | Histori trip + statistik touring pengguna |
 
 ---
 
@@ -88,17 +73,16 @@ Repo ini adalah monorepo dengan dua bagian utama:
 
 | Lapisan | Teknologi | Catatan |
 | :--- | :--- | :--- |
-| Mobile | Expo ~54, React 19, React Native 0.81 | React Navigation (native-stack), tema gelap Slate/Indigo |
-| Peta & Lokasi | react-native-maps, expo-location, expo-task-manager | Live map + background location tracking |
-| Rute & Search | Valhalla (route preview), Nominatim (location search) | Via custom hooks di `mobile/src/hooks/` |
+| Mobile | Expo ~54, React 19, React Native 0.81 | `expo-router`, React Navigation (stack + bottom-tabs) |
+| Peta & Lokasi | MapLibre, react-native-maps, expo-location, expo-task-manager | Live map + background location tracking |
 | Realtime (FE) | laravel-echo + pusher-js | Subscribe channel `private-tour-session.{id}` via Reverb |
-| Penyimpanan (FE) | expo-secure-store + AsyncStorage | Token sesi & preferensi (`storage/tokenStorage`) |
-| Backend | Laravel 13 (PHP 8.3), Sanctum | REST API + auth token di `backend/routes/api.php` |
+| Penyimpanan (FE) | expo-secure-store + AsyncStorage | Token sesi & preferensi |
+| Backend | Laravel 13 (PHP 8.3), Sanctum | REST API + auth token di `routes/api.php` |
 | Realtime (BE) | Laravel Reverb | WebSocket server port `8080` |
 | Database | PostgreSQL 17 | Skema relasional room/session/location/SOS |
 | Cache & Queue | Redis 7 | `CACHE_STORE` + `QUEUE_CONNECTION` + queue worker |
 | Web Server | Nginx 1.27 | Reverse proxy ke PHP-FPM, expose port `8000` |
-| Infra | Docker Compose (root `docker-compose.yml`) | Service `app`, `nginx`, `postgres`, `redis`, `queue`, `reverb` |
+| Infra | Docker Compose | Service `app`, `nginx`, `postgres`, `redis`, `queue`, `reverb` |
 
 ---
 
@@ -106,13 +90,13 @@ Repo ini adalah monorepo dengan dua bagian utama:
 
 ```mermaid
 flowchart LR
-    subgraph Mobile ["mobile/ (Expo App)"]
-        UI["Screens: Home, Map, Profile, Login, Register"]
+    subgraph Mobile ["Expo App (RN)"]
+        UI["Screens: Home, Map, Destination, Stats, Profile"]
         BG["Background Location Task"]
         Echo["Laravel Echo (Reverb client)"]
     end
 
-    subgraph Backend ["backend/ (Laravel API, Docker)"]
+    subgraph Backend ["Laravel API (Docker)"]
         Nginx["Nginx :8000"]
         App["PHP-FPM App"]
         Queue["Queue Worker (redis)"]
@@ -140,11 +124,11 @@ flowchart LR
 ## 5. Alur Bisnis End-to-End
 
 1. **Register & Login**
-   Anggota mendaftar dan masuk. Token Sanctum disimpan aman di device dan dilampirkan sebagai `Bearer` di setiap request (`mobile/src/api/client.js`).
+   Anggota mendaftar dan masuk. Token Sanctum disimpan aman di device (`expo-secure-store`).
    - Endpoint: `POST /api/register`, `POST /api/login`
 
 2. **Buat / Gabung Room**
-   Host membuat room (otomatis membuka trip session aktif + PIN 6-digit). Anggota bergabung dengan PIN.
+   Host membuat room (otomatis membuka trip session aktif). Anggota bergabung dengan PIN.
    - Endpoint: `POST /api/rooms`, `POST /api/rooms/join`
 
 3. **Live Tracking**
@@ -157,7 +141,7 @@ flowchart LR
    - Endpoint: `POST /api/tour-sessions/{session}/sos`, `POST /api/tour-sessions/{session}/sos/{sosAlert}/resolve`
 
 5. **Tutup Room & Riwayat**
-   Host menutup room (`closed`); trip masuk riwayat yang bisa dibuka dari `HistoryModal` di Home.
+   Host menutup room (`closed`); trip masuk riwayat dan statistik pengguna.
    - Endpoint: `POST /api/rooms/{room}/close`, `GET /api/history/trips`
 
 ---
@@ -246,12 +230,12 @@ Base URL lokal: `http://localhost:8000/api`. Semua kode di `backend/routes/api.p
 
 - Docker & Docker Compose (untuk backend)
 - Node.js LTS + npm (untuk mobile)
-- Aplikasi **Expo Go** di HP, atau Android emulator (background location butuh dev client untuk fungsi penuh)
+- Aplikasi **Expo Go** di HP, atau Android emulator / dev client (background location butuh dev client untuk build penuh)
 
-### 9.1 Backend (Docker, dari root repo, port `8000`)
+### 9.1 Backend (Docker, port `8000`)
 
 ```bash
-# 1. Clone repository (branch main)
+# 1. Clone repository
 git clone https://github.com/trezaluginap/Tikum.git
 cd Tikum
 
@@ -291,30 +275,14 @@ docker compose logs reverb                        # log websocket
 
 > **PENTING:** Jangan pernah meng-commit file `.env` / `backend/.env` yang berisi kredensial asli. Volume `tikum_postgres_data` menyimpan data lokal — jangan dihapus bila ingin mempertahankan data.
 
-### 9.2 Mobile (Expo, folder `mobile/`)
+### 9.2 Mobile (Expo)
 
 ```bash
-cd mobile
 npm install
+npx expo start
 ```
 
-Buat file `.env` di folder `mobile/` (lihat juga [`mobile/README.md`](mobile/README.md)):
-
-```env
-EXPO_PUBLIC_API_URL=http://IP_LAPTOP:8000/api
-EXPO_PUBLIC_REVERB_HOST=IP_LAPTOP
-EXPO_PUBLIC_REVERB_PORT=8080
-EXPO_PUBLIC_REVERB_SCHEME=http
-EXPO_PUBLIC_REVERB_APP_KEY=tikum-local-key
-```
-
-Ganti `IP_LAPTOP` dengan IP LAN laptop (contoh `192.168.1.10`) — `localhost` tidak berlaku saat aplikasi jalan di HP fisik. Lalu:
-
-```bash
-npx expo start -c
-```
-
-Scan QR dengan Expo Go, atau tekan `a` (Android) / `i` (iOS).
+Lalu pilih `a` (Android), `i` (iOS), `w` (web), atau scan QR dengan Expo Go. Arahkan base URL API di `src/api/client.js` ke `http://<IP-LAN>:8000/api` saat running di HP fisik (localhost HP ≠ localhost laptop).
 
 ---
 
@@ -323,43 +291,42 @@ Scan QR dengan Expo Go, atau tekan `a` (Android) / `i` (iOS).
 ### Pola Deployment Disarankan
 
 - **Backend:** VPS (Ubuntu + Docker Compose) — service yang sama seperti lokal; pasang reverse proxy + TLS di depan Nginx bila perlu.
-- **Mobile:** EAS Build dari folder `mobile/` → APK tester (preview) atau AAB Play Store (production).
+- **Mobile:** EAS Build (`eas.json` sudah ada, projectId terdaftar) → `eas build -p android --profile preview` untuk APK tester, `--profile production` untuk AAB Play Store.
 - **Database:** volume terkelola di VPS + backup berkala `pg_dump`; Redis persist AOF bila dibutuhkan.
 
 ### Struktur Folder Proyek
 
 ```text
 Tikum/
+├── App.js                  # entry: font, auth guard, stack navigator
+├── app.json                # Expo config (package com.treza_666.tikum)
+├── eas.json                # profil build EAS
 ├── docker-compose.yml      # app, nginx, postgres, redis, queue, reverb
-├── backend/                # Laravel 13 API
-│   ├── routes/api.php      # seluruh endpoint REST
-│   ├── app/Http/Controllers/Api/
-│   ├── app/Models/         # Room, TourSession, SosAlert, ...
-│   ├── database/migrations/
-│   ├── docker/nginx/default.conf
-│   └── Dockerfile
-└── mobile/                 # Expo app
-    ├── App.js              # entry: font, auth guard, stack navigator
-    ├── README.md           # setup cepat frontend
-    ├── FRONTEND_BACKEND_INTEGRATION.md
-    ├── src/
-    │   ├── api/            # client.js + auth/history/locations/profile/rooms/sos/trips
-    │   ├── screens/        # Login, Register, ResetPassword, Home, Map, Profile
-    │   ├── components/     # home (modals, cards), common (ForgotPasswordModal)
-    │   ├── contexts/       # AuthContext
-    │   ├── navigation/     # rootNavigation
-    │   ├── services/       # backgroundLocation task
-    │   ├── realtime/       # echo.js (Reverb client)
-    │   ├── hooks/          # useActiveTrips, useLocationSearch, useOsrmRoute, useNetworkStatus
-    │   └── storage/ constants/
-    └── package.json
+├── src/
+│   ├── api/                # client.js + auth/history/locations/profile/rooms/sos
+│   ├── screens/            # Login, Register, Home, Map, Destination,
+│   │                       # Stats, Profile, Settings, ResetPassword
+│   ├── components/         # home, map, common (ConvoyDialog/Toast, modals)
+│   ├── contexts/           # AuthContext, LanguageContext (ID/EN)
+│   ├── navigation/         # MainTabNavigator, rootNavigation
+│   ├── services/           # backgroundLocation task
+│   ├── realtime/           # Echo/Reverb client
+│   ├── hooks/              # useActiveTrips, useLocationSearch, useOsrmRoute
+│   └── storage/ constants/ # token storage, theme
+└── backend/                # Laravel 13 API
+    ├── routes/api.php      # seluruh endpoint REST
+    ├── app/Http/Controllers/Api/
+    ├── app/Models/         # Room, TourSession, SosAlert, ...
+    ├── database/migrations/
+    ├── docker/nginx/default.conf
+    └── Dockerfile
 ```
 
 ---
 
 ## 11. Catatan Keamanan & Batasan
 
-- **PIN room:** mekanisme join mengandalkan PIN 6-digit; gunakan PIN yang tidak mudah ditebak dan rotasi per trip bila perlu.
+- **PIN room:** mekanisme join mengandalkan PIN; gunakan PIN yang tidak mudah ditebak dan rotasi per trip bila perlu.
 - **Otorisasi realtime:** channel `private-tour-session.*` hanya untuk member aktif (dicek di `POST /api/broadcasting/auth`).
 - **Background location:** butuh permission lokasi + dev client; di Expo Go fitur background terbatas.
 - **Akurasi lokasi:** interval update dan akurasi GPS bergantung device; area tanpa sinyal akan menghasilkan gap pada `location_histories`.
