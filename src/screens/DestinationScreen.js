@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { supabase } from '../../supabase';
+import { createRoom } from '../api/rooms.api';
 import ConvoyDialog from '../components/common/ConvoyDialog';
 import ConvoyToast from '../components/common/ConvoyToast';
 import { CreateRoomModal } from '../components/home/CreateRoomModal';
@@ -51,29 +51,36 @@ export default function DestinationScreen() {
   const { routeCoords, routeSummary } = useOsrmRoute(origin.coords, destination.coords, routingMode);
 
   // ── Weather State & Fetcher ──
-  const [weatherData, setWeatherData] = useState(null);
+  const [originWeather, setOriginWeather] = useState(null);
+  const [destWeather, setDestWeather] = useState(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
 
-  const fetchWeather = async () => {
+  const fetchWeather = useCallback(async () => {
     setWeatherLoading(true);
     try {
-      const lat = origin.coords?.latitude || -6.2088;
-      const lon = origin.coords?.longitude || 106.8456;
-      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
-      const json = await res.json();
-      if (json && json.current_weather) {
-        setWeatherData(json.current_weather);
+      const oLat = origin.coords?.latitude || -6.2088;
+      const oLon = origin.coords?.longitude || 106.8456;
+      const oRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${oLat}&longitude=${oLon}&current_weather=true`);
+      const oJson = await oRes.json();
+      if (oJson?.current_weather) setOriginWeather(oJson.current_weather);
+
+      if (destination.coords) {
+        const dLat = destination.coords.latitude;
+        const dLon = destination.coords.longitude;
+        const dRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${dLat}&longitude=${dLon}&current_weather=true`);
+        const dJson = await dRes.json();
+        if (dJson?.current_weather) setDestWeather(dJson.current_weather);
       }
     } catch (e) {
       console.warn('Weather fetch error:', e);
     } finally {
       setWeatherLoading(false);
     }
-  };
+  }, [origin.coords, destination.coords]);
 
   useEffect(() => {
     fetchWeather();
-  }, []);
+  }, [fetchWeather]);
 
   const getWeatherDescription = (code) => {
     if (code === 0) return { label: 'Cerah', icon: 'weather-sunny', color: '#F59E0B' };
@@ -110,33 +117,29 @@ export default function DestinationScreen() {
       if (!user?.id) throw new Error('Sesi tidak valid, silakan login ulang.');
       if (!origin.coords || !destination.coords) throw new Error('Asal dan tujuan harus dipilih.');
 
-      const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-      const { data, error } = await supabase
-        .from('rooms')
-        .insert([{ room_pin: generatedPin, host_id: user.id, is_active: true }])
-        .select();
-
-      if (error) throw new Error(error.message);
-      if (!data?.length) throw new Error('Room dibuat tapi data tidak terambil');
-
-      const createdRoom = data[0];
-      let modeCode = vehicleType === 'motorcycle' ? 1 : (useTolls ? 2 : 3);
+      const created = await createRoom({
+        origin_name: origin.name || 'Lokasi asal',
+        origin_latitude: origin.coords.latitude,
+        origin_longitude: origin.coords.longitude,
+        destination_name: destination.name || 'Lokasi tujuan',
+        destination_latitude: destination.coords.latitude,
+        destination_longitude: destination.coords.longitude,
+        vehicle_type: vehicleType,
+        use_tolls: useTolls,
+        vehicle_count: vehicleCount,
+        route_distance_km: routeSummary?.distanceKm ? Number(routeSummary.distanceKm) : undefined,
+        route_duration_min: routeSummary?.durationMin ? Number(routeSummary.durationMin) : undefined,
+      });
+      const createdRoom = created.room;
+      const generatedPin = createdRoom?.room_pin;
+      const modeCode = vehicleType === 'motorcycle' ? 1 : (useTolls ? 2 : 3);
       const encodedVehicleCount = modeCode * 1000 + vehicleCount;
-
-      await supabase
-        .from('room_trips')
-        .upsert([{
-          room_id: createdRoom.id,
-          origin_latitude: origin.coords.latitude,
-          origin_longitude: origin.coords.longitude,
-          destination_latitude: destination.coords.latitude,
-          destination_longitude: destination.coords.longitude,
-          vehicle_count: encodedVehicleCount,
-        }], { onConflict: 'room_id' });
+      if (!createdRoom?.id || !generatedPin) throw new Error('Response room Laravel tidak valid.');
 
       setCreateModalVisible(false);
       navigation.navigate('Map', {
         roomId: createdRoom.id,
+        tourSessionId: created.session?.id || createdRoom.session?.id || createdRoom.active_session_id || createdRoom.id,
         pin: generatedPin,
         role: 'leader',
         origin: origin.coords,
@@ -225,37 +228,35 @@ export default function DestinationScreen() {
             <View style={styles.loadingContainer}>
               <Text style={styles.loadingText}>{t('home.weatherLoading')}</Text>
             </View>
-          ) : weatherData ? (
+          ) : (originWeather || destWeather) ? (
             <View style={[styles.weatherDashboard, { marginBottom: spacing.md }]}>
-              <View style={styles.weatherLeft}>
-                <MaterialCommunityIcons
-                  name={getWeatherDescription(weatherData.weathercode).icon}
-                  size={38}
-                  color={getWeatherDescription(weatherData.weathercode).color}
-                />
-                <View style={{ marginLeft: spacing.sm }}>
-                  <Text style={styles.tempText}>{Math.round(weatherData.temperature)}°C</Text>
-                  <Text style={styles.weatherCondition}>{getWeatherDescription(weatherData.weathercode).label}</Text>
+              {originWeather && (
+                <View style={styles.weatherLeft}>
+                  <MaterialCommunityIcons
+                    name={getWeatherDescription(originWeather.weathercode).icon}
+                    size={32}
+                    color={getWeatherDescription(originWeather.weathercode).color}
+                  />
+                  <View style={{ marginLeft: spacing.sm }}>
+                    <Text style={styles.tempText}>{Math.round(originWeather.temperature)}°C</Text>
+                    <Text style={styles.weatherCondition}>{getWeatherDescription(originWeather.weathercode).label} (Asal)</Text>
+                  </View>
                 </View>
-              </View>
+              )}
 
-              <View style={styles.weatherRight}>
-                <View style={styles.weatherMetaItem}>
-                  <MaterialCommunityIcons name="wind-power" size={14} color={colors.textMuted} />
-                  <Text style={styles.weatherMetaVal}>{weatherData.windspeed} km/h</Text>
+              {destWeather && (
+                <View style={[styles.weatherLeft, { borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.1)', paddingLeft: spacing.sm, marginLeft: spacing.sm }]}>
+                  <MaterialCommunityIcons
+                    name={getWeatherDescription(destWeather.weathercode).icon}
+                    size={32}
+                    color={getWeatherDescription(destWeather.weathercode).color}
+                  />
+                  <View style={{ marginLeft: spacing.sm }}>
+                    <Text style={styles.tempText}>{Math.round(destWeather.temperature)}°C</Text>
+                    <Text style={styles.weatherCondition}>{getWeatherDescription(destWeather.weathercode).label} (Destinasi)</Text>
+                  </View>
                 </View>
-                <View style={[styles.weatherMetaItem, { marginLeft: spacing.md }]}>
-                  <MaterialCommunityIcons name="compass-rose" size={14} color={colors.textMuted} />
-                  <Text style={styles.weatherMetaVal}>{weatherData.winddirection}°</Text>
-                </View>
-              </View>
-
-              <View style={styles.adviceBoxCompact}>
-                <MaterialCommunityIcons name="shield-check-outline" size={12} color="#10B981" style={{ marginRight: 4 }} />
-                <Text style={styles.adviceTextCompact} numberOfLines={1}>
-                  {weatherData.weathercode >= 51 ? t('home.weatherAdviceWet') : t('home.weatherAdviceDry')}
-                </Text>
-              </View>
+              )}
             </View>
           ) : null}
 

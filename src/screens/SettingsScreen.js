@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { supabase } from '../../supabase';
+
 import ConvoyDialog from '../components/common/ConvoyDialog';
 import ConvoyToast from '../components/common/ConvoyToast';
 import { HomeHeader } from '../components/home/HomeHeader';
@@ -46,8 +47,7 @@ export default function SettingsScreen() {
           style: 'danger',
           onPress: async () => {
             try {
-              if (signOut) await signOut();
-              else await supabase.auth.signOut();
+              await signOut();
             } catch (err) {
               console.warn('Signout error:', err);
             }
@@ -59,6 +59,19 @@ export default function SettingsScreen() {
 
   const displayName = user?.user_metadata?.display_name || 'Pengguna';
   const profileInitial = displayName.substring(0, 2).toUpperCase();
+
+  const handleClearCache = async () => {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const tempKeys = keys.filter(k => k.includes('cache') || k.includes('search') || k.includes('temp'));
+      if (tempKeys.length > 0) {
+        await AsyncStorage.multiRemove(tempKeys);
+      }
+      showToast('success', t('settings.clearCache'), 'Cache lokasi dan pencarian rute berhasil dibersihkan.');
+    } catch (_err) {
+      showToast('warning', t('settings.clearCache'), t('settings.cacheToast'));
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -230,7 +243,7 @@ export default function SettingsScreen() {
 
             <TouchableOpacity
               style={styles.settingItemRow}
-              onPress={() => showToast('success', t('settings.clearCache'), t('settings.cacheToast'))}
+              onPress={handleClearCache}
               activeOpacity={0.7}
             >
               <View style={styles.settingItemLeft}>

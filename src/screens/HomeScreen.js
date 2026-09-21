@@ -1,9 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  Animated,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,9 +10,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView from 'react-native-maps';
+import TiKumMap from '../components/map/TiKumMap';
 
-import { supabase } from '../../supabase';
+import { createRoom, joinRoom } from '../api/rooms.api';
 import ConvoyDialog from '../components/common/ConvoyDialog';
 import ConvoyToast from '../components/common/ConvoyToast';
 import { ActiveTripsCard } from '../components/home/ActiveTripsCard';
@@ -100,29 +99,25 @@ export default function HomeScreen() {
       if (!user?.id) throw new Error('Sesi tidak valid, silakan login ulang.');
       if (!origin.coords || !destination.coords) throw new Error('Asal dan tujuan harus dipilih.');
 
-      const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-      const { data, error } = await supabase
-        .from('rooms')
-        .insert([{ room_pin: generatedPin, host_id: user.id, is_active: true }])
-        .select();
+      const modeCode = vehicleType === 'motorcycle' ? 1 : (useTolls ? 2 : 3);
+      const created = await createRoom({
+        origin_name: origin.name || 'Lokasi asal',
+        origin_latitude: origin.coords.latitude,
+        origin_longitude: origin.coords.longitude,
+        destination_name: destination.name || 'Lokasi tujuan',
+        destination_latitude: destination.coords.latitude,
+        destination_longitude: destination.coords.longitude,
+        vehicle_type: vehicleType,
+        use_tolls: useTolls,
+        vehicle_count: vehicleCount,
+        route_distance_km: routeSummary?.distanceKm ? Number(routeSummary.distanceKm) : undefined,
+        route_duration_min: routeSummary?.durationMin ? Number(routeSummary.durationMin) : undefined,
+      });
+      const createdRoom = created.room;
 
-      if (error) throw new Error(error.message);
-      if (!data?.length) throw new Error('Room dibuat tapi data tidak terambil');
-
-      const createdRoom = data[0];
-      let modeCode = vehicleType === 'motorcycle' ? 1 : (useTolls ? 2 : 3);
+      const generatedPin = createdRoom?.room_pin;
       const encodedVehicleCount = modeCode * 1000 + vehicleCount;
-
-      await supabase
-        .from('room_trips')
-        .upsert([{
-          room_id: createdRoom.id,
-          origin_latitude: origin.coords.latitude,
-          origin_longitude: origin.coords.longitude,
-          destination_latitude: destination.coords.latitude,
-          destination_longitude: destination.coords.longitude,
-          vehicle_count: encodedVehicleCount,
-        }], { onConflict: 'room_id' });
+      if (!createdRoom?.id || !generatedPin) throw new Error('Response room Laravel tidak valid.');
 
       setCreateModalVisible(false);
       const savedCoords = origin.coords;
@@ -147,6 +142,7 @@ export default function HomeScreen() {
             onPress: () => {
               navigation.navigate('Map', {
                 roomId: createdRoom.id,
+                tourSessionId: created.session?.id || createdRoom.session?.id || createdRoom.active_session_id || createdRoom.id,
                 pin: generatedPin,
                 role: 'leader',
                 origin: savedCoords,
@@ -182,33 +178,23 @@ export default function HomeScreen() {
     }
     setJoinLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('rooms')
-        .select('id, is_active')
-        .eq('room_pin', pinInput)
-        .eq('is_active', true)
-        .single();
+      const joined = await joinRoom(pinInput);
+      const room = joined.room;
+      const tripData = joined.trip;
+      if (!room?.id) throw new Error('Response join room Laravel tidak valid.');
 
-      if (error || !data) throw new Error('PIN tidak ditemukan atau room perjalanan sudah ditutup.');
-
-      const { data: tripData } = await supabase
-        .from('room_trips')
-        .select('origin_latitude, origin_longitude, destination_latitude, destination_longitude, vehicle_count')
-        .eq('room_id', data.id)
-        .maybeSingle();
-
-      let joinOrigin = null, joinDestination = null, joinedVehicleCount = null;
-      if (tripData) {
-        joinOrigin = { latitude: tripData.origin_latitude, longitude: tripData.origin_longitude };
-        joinDestination = { latitude: tripData.destination_latitude, longitude: tripData.destination_longitude };
-        joinedVehicleCount = tripData.vehicle_count;
-      }
+      const tourSessionId = joined.session?.id || room.session?.id || room.active_session_id || room.id;
+      const joinOrigin = tripData ? { latitude: Number(tripData.origin_latitude), longitude: Number(tripData.origin_longitude) } : null;
+      const joinDestination = tripData ? { latitude: Number(tripData.destination_latitude), longitude: Number(tripData.destination_longitude) } : null;
+      const joinedVehicleCount = tripData?.vehicle_count || null;
 
       setJoinModalVisible(false);
       setPinInput('');
       showToast('success', 'Berhasil Bergabung!', 'Kamu telah terhubung ke radar rombongan.');
       navigation.navigate('Map', {
-        roomId: data.id,
+        roomId: room.id,
+        tourSessionId: tourSessionId,
+        pin: pinInput,
         role: 'member',
         origin: joinOrigin,
         destination: joinDestination,
@@ -229,14 +215,15 @@ export default function HomeScreen() {
   };
 
   const handleTripResume = (trip) => {
-    const td = Array.isArray(trip.room_trips) ? trip.room_trips[0] : trip.room_trips;
+    const td = Array.isArray(trip.room_trips) ? trip.room_trips[0] : (trip.trip || trip.room_trips);
     if (!td) return;
     navigation.navigate('Map', {
       roomId: trip.id,
+      tourSessionId: trip.session?.id || trip.active_session_id || trip.id,
       pin: trip.room_pin,
       role: 'leader',
-      origin: { latitude: td.origin_latitude, longitude: td.origin_longitude },
-      destination: { latitude: td.destination_latitude, longitude: td.destination_longitude },
+      origin: { latitude: Number(td.origin_latitude), longitude: Number(td.origin_longitude) },
+      destination: { latitude: Number(td.destination_latitude), longitude: Number(td.destination_longitude) },
       vehicleCount: td.vehicle_count,
     });
   };
@@ -306,13 +293,9 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.scrollInner}>
         {/* Map Radar View */}
         <View style={styles.mapContainer}>
-          <MapView
+          <TiKumMap
             style={styles.map}
             initialRegion={INDONESIA_REGION}
-            customMapStyle={mapDarkStyle}
-            scrollEnabled={false}
-            zoomEnabled={false}
-            rotateEnabled={false}
           />
           <View style={styles.mapOverlay}>
             <Text style={styles.mapOverlayText}>{t('home.radarTitle')}</Text>
@@ -366,17 +349,6 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
-
-const mapDarkStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
-  { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#255763' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#283d6a' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
-];
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },

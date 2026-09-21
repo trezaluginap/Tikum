@@ -1,8 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { getTripHistory } from '../api/history.api';
 
 import { HomeHeader } from '../components/home/HomeHeader';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
@@ -17,40 +20,115 @@ export default function StatsScreen() {
   const displayName = user?.user_metadata?.display_name || 'Pengguna';
   const profileInitial = displayName.substring(0, 2).toUpperCase();
 
-  // Weekly bar chart mock data (height %)
-  const weeklyData = [
-    { day: 'Sen', val: 25, active: false },
-    { day: 'Sel', val: 40, active: false },
-    { day: 'Rab', val: 15, active: false },
-    { day: 'Kam', val: 60, active: true },
-    { day: 'Jum', val: 30, active: false },
-    { day: 'Sab', val: 90, active: true },
-    { day: 'Min', val: 100, active: true },
-  ];
+  // ── Real State from Laravel Backend ──
+  const [tripsHistory, setTripsHistory] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Strava convoy feed mock items
-  const recentRides = [
-    {
-      id: '1',
-      title: 'Sunmori Puncak Pass - Kebun Teh',
-      time: 'Kemarin • 07:30 WIB',
-      distance: '45.2 km',
-      duration: '1j 40m',
-      speed: '52 km/h',
-      riders: 8,
-      type: 'motorcycle',
-    },
-    {
-      id: '2',
-      title: 'Coastal Cruise Pantai Pasir Putih PIK 2',
-      time: '3 Hari Lalu • 20:00 WIB',
-      distance: '32.0 km',
-      duration: '1j 15m',
-      speed: '44 km/h',
-      riders: 5,
-      type: 'car',
-    },
-  ];
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await getTripHistory();
+      const items = res?.data || res?.trips || res || [];
+      setTripsHistory(Array.isArray(items) ? items : []);
+    } catch (_err) {
+      setTripsHistory([]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchHistory();
+  };
+
+  // ── Calculated Real Metrics ──
+  const totalDistance = tripsHistory.reduce((acc, t) => {
+    const d = t.distance_km ?? t.route_distance_km ?? 0;
+    return acc + Number(d || 0);
+  }, 0);
+
+  const totalDurationMin = tripsHistory.reduce((acc, t) => {
+    const dur = t.duration_min ?? t.route_duration_min ?? (t.duration_seconds ? t.duration_seconds / 60 : 0);
+    return acc + Number(dur || 0);
+  }, 0);
+
+  const totalHours = (totalDurationMin / 60).toFixed(1);
+  const totalTrips = tripsHistory.length;
+  const avgSpeed = totalDurationMin > 0 ? Math.round(totalDistance / (totalDurationMin / 60)) : 0;
+
+  // Calculate Weekly Bar Heights dynamically from real trips or fallback
+  const daysOfWeek = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+  const dayIndexMap = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6 }; // JS getDay() 0=Sun
+  const dayDistances = [0, 0, 0, 0, 0, 0, 0];
+
+  tripsHistory.forEach((t) => {
+    if (!t.finished_at && !t.started_at) return;
+    const date = new Date(t.finished_at || t.started_at);
+    const dayIdx = dayIndexMap[date.getDay()];
+    if (dayIdx !== undefined) {
+      const dist = Number(t.distance_km ?? t.route_distance_km ?? 5);
+      dayDistances[dayIdx] += dist;
+    }
+  });
+
+  const maxDayDist = Math.max(...dayDistances, 1);
+  const weeklyData = daysOfWeek.map((day, idx) => ({
+    day,
+    val: dayDistances[idx] > 0 ? Math.min(100, Math.max(20, Math.round((dayDistances[idx] / maxDayDist) * 100))) : 15,
+    active: dayDistances[idx] > 0,
+  }));
+
+  // Feed items from real history or mock fallback
+  const displayRides = tripsHistory.length > 0
+    ? tripsHistory.slice(0, 5).map((t, idx) => {
+        const dist = Number(t.distance_km ?? t.route_distance_km ?? 0).toFixed(1);
+        const durMin = Math.round(Number(t.duration_min ?? t.route_duration_min ?? (t.duration_seconds ? t.duration_seconds / 60 : 0)));
+        const durStr = durMin >= 60 ? `${Math.floor(durMin / 60)}j ${durMin % 60}m` : `${durMin}m`;
+        const speedStr = durMin > 0 ? `${Math.round(dist / (durMin / 60))} km/h` : '0 km/h';
+        const titleStr = t.origin?.name && t.destination?.name
+          ? `${t.origin.name} ➔ ${t.destination.name}`
+          : `Touring Sesi #${t.session_id || idx + 1}`;
+        const timeStr = t.finished_at
+          ? new Date(t.finished_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+          : 'Trip Selesai';
+
+        return {
+          id: String(t.session_id || idx),
+          title: titleStr,
+          time: timeStr,
+          distance: `${dist} km`,
+          duration: durStr,
+          speed: speedStr,
+          riders: t.member_count || 1,
+          type: t.vehicle_type || 'motorcycle',
+        };
+      })
+    : [
+        {
+          id: '1',
+          title: 'Sunmori Puncak Pass - Kebun Teh',
+          time: 'Kemarin • 07:30 WIB',
+          distance: '45.2 km',
+          duration: '1j 40m',
+          speed: '52 km/h',
+          riders: 8,
+          type: 'motorcycle',
+        },
+        {
+          id: '2',
+          title: 'Coastal Cruise Pantai Pasir Putih PIK 2',
+          time: '3 Hari Lalu • 20:00 WIB',
+          distance: '32.0 km',
+          duration: '1j 15m',
+          speed: '44 km/h',
+          riders: 5,
+          type: 'car',
+        },
+      ];
 
   // Leaderboard mock items
   const topRiders = [
@@ -71,7 +149,14 @@ export default function StatsScreen() {
         onProfilePress={() => navigation.navigate('Profile')}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.scrollInner}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollInner}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
+      >
         <View style={styles.tabContent}>
           {/* Section Title */}
           <View style={styles.tabHeaderRow}>
@@ -110,22 +195,22 @@ export default function StatsScreen() {
           <View style={styles.metricsGrid}>
             <View style={styles.metricCard}>
               <MaterialCommunityIcons name="map-marker-distance" size={16} color={colors.primary} />
-              <Text style={styles.metricVal}>340.5 km</Text>
+              <Text style={styles.metricVal}>{totalDistance.toFixed(1)} km</Text>
               <Text style={styles.metricLabel}>{t('home.totalDistance')}</Text>
             </View>
             <View style={styles.metricCard}>
               <MaterialCommunityIcons name="clock-outline" size={16} color="#10B981" />
-              <Text style={styles.metricVal}>14.2 Jam</Text>
+              <Text style={styles.metricVal}>{totalHours} Jam</Text>
               <Text style={styles.metricLabel}>{t('home.avgDuration')}</Text>
             </View>
             <View style={styles.metricCard}>
               <MaterialCommunityIcons name="speedometer" size={16} color="#F59E0B" />
-              <Text style={styles.metricVal}>48 km/h</Text>
+              <Text style={styles.metricVal}>{avgSpeed} km/h</Text>
               <Text style={styles.metricLabel}>Rata-Rata Kecepatan</Text>
             </View>
             <View style={styles.metricCard}>
               <MaterialCommunityIcons name="account-group" size={16} color="#0EA5E9" />
-              <Text style={styles.metricVal}>12x Trip</Text>
+              <Text style={styles.metricVal}>{totalTrips}x Trip</Text>
               <Text style={styles.metricLabel}>{t('home.ridingCount')}</Text>
             </View>
           </View>
@@ -169,7 +254,7 @@ export default function StatsScreen() {
 
           {/* ══ 4. RECENT CONVOY ACTIVITY FEED (STRAVA STYLE) ══ */}
           <Text style={styles.sectionHeading}>Riwayat Konvoi Terbaru (Feed)</Text>
-          {recentRides.map((ride) => (
+          {displayRides.map((ride) => (
             <View key={ride.id} style={styles.rideFeedCard}>
               <View style={styles.rideFeedHeader}>
                 <View style={styles.rideIconBg}>

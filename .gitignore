@@ -11,7 +11,14 @@
 !/backend/storage/framework/sessions/.gitignore
 !/backend/storage/framework/views/.gitignore
 
+# Environment & Local build
+.env*
+.expo/
+create_article.py
+
+# Editor & System
 *.tsbuildinfo
 .DS_Store
 *.pem
 .vscode/
+node_modules

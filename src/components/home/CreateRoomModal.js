@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import TiKumMap, { TiKumMarker, TiKumPolyline } from '../map/TiKumMap';
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
 
@@ -80,26 +80,27 @@ function MapPickerModal({ visible, onClose, onConfirm, title }) {
         </View>
 
         {/* Map */}
-        <MapView
+        <TiKumMap
           ref={mapRef}
           style={pickerStyles.map}
           initialRegion={{
-            latitude: -6.9175,
-            longitude: 107.6191,
+            latitude: pickedCoord?.latitude || -6.9175,
+            longitude: pickedCoord?.longitude || 107.6191,
             latitudeDelta: 0.5,
             longitudeDelta: 0.5,
           }}
+          centerCoordinate={pickedCoord || undefined}
+          markers={pickedCoord ? [{ id: 'picked-location', latitude: pickedCoord.latitude, longitude: pickedCoord.longitude, label: 'Lokasi Terpilih', icon: 'origin', color: colors.primary }] : []}
           onPress={handleMapPress}
-          customMapStyle={mapDarkStyle}
         >
           {pickedCoord && (
-            <Marker coordinate={pickedCoord}>
+            <TiKumMarker id="picked-location" coordinate={pickedCoord}>
               <View style={pickerStyles.markerContainer}>
                 <MaterialCommunityIcons name="map-marker" size={36} color={colors.primary} />
               </View>
-            </Marker>
+            </TiKumMarker>
           )}
-        </MapView>
+        </TiKumMap>
 
         {/* Instruksi / Info */}
         <View style={pickerStyles.footer}>
@@ -164,7 +165,7 @@ function CurrentLocationButton({ onLocationFound, loading: externalLoading }) {
         displayName = parts.join(', ') || 'Lokasi Saat Ini';
       }
       onLocationFound(displayName, loc.coords.latitude, loc.coords.longitude);
-    } catch (error) {
+    } catch (_error) {
       Alert.alert('Error', 'Gagal mendapatkan lokasi. Pastikan GPS aktif.');
     } finally {
       setGpsLoading(false);
@@ -317,7 +318,7 @@ export function CreateRoomModal({
               {/* MAP PREVIEW */}
               {(origin.coords || destination.coords) && (
                 <View style={styles.mapBox}>
-                  <MapView
+                  <TiKumMap
                     style={styles.map}
                     initialRegion={{
                       latitude: origin.coords?.latitude || destination.coords?.latitude || -6.9175,
@@ -325,17 +326,22 @@ export function CreateRoomModal({
                       latitudeDelta: 0.1,
                       longitudeDelta: 0.1,
                     }}
+                    routeCoords={routeCoords}
+                    markers={[
+                      origin.coords && { id: 'preview-origin', latitude: origin.coords.latitude, longitude: origin.coords.longitude, label: 'Asal', icon: 'origin', color: '#10B981' },
+                      destination.coords && { id: 'preview-dest', latitude: destination.coords.latitude, longitude: destination.coords.longitude, label: 'Tujuan', icon: 'dest', color: '#EF4444' },
+                    ].filter(Boolean)}
                   >
                     {routeCoords.length > 0 && (
-                      <Polyline coordinates={routeCoords} strokeColor={colors.primary} strokeWidth={3} />
+                      <TiKumPolyline id="preview-route" coordinates={routeCoords} strokeColor={colors.primary} strokeWidth={3} />
                     )}
-                    {origin.coords && <Marker coordinate={origin.coords} title="Asal" pinColor="#10B981" />}
-                    {destination.coords && <Marker coordinate={destination.coords} title="Tujuan" pinColor="#EF4444" />}
-                  </MapView>
+                    {origin.coords && <TiKumMarker id="preview-origin" coordinate={origin.coords} title="Asal" />}
+                    {destination.coords && <TiKumMarker id="preview-dest" coordinate={destination.coords} title="Tujuan" />}
+                  </TiKumMap>
                   {routeSummary && (
                     <View style={styles.routeInfo}>
                       <Text style={styles.routeInfoText}>
-                        📏 {routeSummary.distanceKm} km  •  ⏱️ {routeSummary.durationMin} min
+                        📏 {routeSummary.distanceKm} km  •  ⏱️ {routeSummary.durationMin} min  •  ⛽ ~{(Number(routeSummary.distanceKm || 0) / (vehicleType === 'motorcycle' ? 40 : 12)).toFixed(1)}L Bensin
                       </Text>
                     </View>
                   )}
@@ -495,18 +501,6 @@ export function CreateRoomModal({
     </Modal>
   );
 }
-
-// ─── Dark map style ─────────────────────────────────────────────
-const mapDarkStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
-  { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#255763' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#283d6a' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
-];
 
 // ─── Map Picker Styles ──────────────────────────────────────────
 const pickerStyles = StyleSheet.create({

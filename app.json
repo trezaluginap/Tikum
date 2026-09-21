@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "31c8963d-545d-4f90-aef9-e83df55276aa"
+      }
+    },
+    "android": {
+      "package": "com.treza_666.tikum"
+    }
+  }
+}
