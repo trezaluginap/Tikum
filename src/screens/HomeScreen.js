@@ -298,7 +298,7 @@ export default function HomeScreen() {
             initialRegion={INDONESIA_REGION}
           />
           <View style={styles.mapOverlay}>
-            <Text style={styles.mapOverlayText}>{t('home.radarTitle')}</Text>
+            <Text style={styles.mapOverlayText}>{t('home.radarLocal')}</Text>
           </View>
         </View>
 

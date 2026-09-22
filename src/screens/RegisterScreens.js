@@ -162,6 +162,10 @@ export default function RegisterScreens({ navigation }) {
                 <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
               </Pressable>
               <Text style={styles.stepIndicator}>{t('auth.stepLabel').replace('{step}', String(step))}</Text>
+              <View style={styles.stepDots}>
+                <View style={[styles.stepDot, step >= 1 && styles.stepDotActive]} />
+                <View style={[styles.stepDot, step >= 2 && styles.stepDotActive]} />
+              </View>
               <View style={{ width: 40 }} />
             </View>
 
@@ -395,6 +399,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stepIndicator: { fontSize: fontSize.xs, fontFamily: fonts.bold, color: colors.primaryMuted, letterSpacing: 2 },
+  stepDots: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' },
+  stepDotActive: { backgroundColor: colors.primary },
 
   headerSection: { marginBottom: 32 },
   mainTitle: { fontSize: 36, fontFamily: fonts.black, color: colors.textPrimary, letterSpacing: -1.2, marginBottom: spacing.xs },

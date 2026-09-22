@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  ActivityIndicator,
   SafeAreaView,
   Share,
   StatusBar,
@@ -525,6 +526,7 @@ export default function MapScreen({ route, navigation }) {
             text: t('map.sosSendYes'),
             style: 'destructive',
             onPress: async () => {
+              let triggerOk = false;
               try {
                 const response = await triggerSos(tourSessionId, {
                   message: 'Butuh bantuan darurat',
@@ -532,7 +534,11 @@ export default function MapScreen({ route, navigation }) {
                   longitude: myLocation?.longitude ?? null,
                 });
                 setActiveSosAlertId(response?.sos_alert?.id || response?.id || null);
-              } catch (_e) {}
+                triggerOk = true;
+              } catch (_e) {
+                showToast('danger', t('map.sosSent'), t('map.sosSendFail'));
+              }
+              if (!triggerOk) return;
               setSosActive(true);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
               showToast('danger', t('map.sosSent'), t('map.sosSentMsg'));
@@ -779,6 +785,14 @@ export default function MapScreen({ route, navigation }) {
         onPoiSelected={(nodes) => setPoiMarkers(nodes)}
       />
 
+      {/* ROUTE LOADING CHIP */}
+      {routeLoading && (
+        <View style={styles.routeLoadingChip}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.routeLoadingText}>{t('map.routeLoading')}</Text>
+        </View>
+      )}
+
       {/* TOP BAR */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBarBtn} onPress={handleLeaveRoom}>
@@ -846,6 +860,9 @@ export default function MapScreen({ route, navigation }) {
           style={[styles.sosFab, sosActive && styles.sosFabActive]}
           onPress={handleToggleSOS}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="SOS darurat"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <MaterialCommunityIcons name="alert-decagram" size={26} color={colors.white} />
           <Text style={styles.sosFabText}>{sosActive ? t('map.sosActive') : t('map.sosBtn')}</Text>
@@ -990,6 +1007,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     zIndex: 30,
   },
+
+  routeLoadingChip: {
+    position: 'absolute',
+    top: 108,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderRadius: radius.full,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.35)',
+    zIndex: 45,
+  },
+  routeLoadingText: { fontSize: fontSize.xs, fontFamily: fonts.semiBold, color: colors.textPrimary },
 
   sosMarkerDot: {
     backgroundColor: colors.danger,
