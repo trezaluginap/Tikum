@@ -13,7 +13,7 @@ import { HomeHeader } from '../components/home/HomeHeader';
 import { colors, fonts, fontSize, radius, spacing } from '../constants/theme';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { loadSettingsPrefs, setDarkMapPref, setNotificationsPref } from '../storage/prefs';
+import { loadSettingsPrefs, setDarkMapPref, setNotificationsPref, setVoicePref } from '../storage/prefs';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -23,12 +23,14 @@ export default function SettingsScreen() {
   // ── Settings Toggles & Modals State ──
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeMap, setDarkModeMap] = useState(true);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
   useEffect(() => {
     loadSettingsPrefs().then((prefs) => {
       setDarkModeMap(prefs.darkMap);
       setNotificationsEnabled(prefs.notifications);
+      setVoiceEnabled(prefs.voice);
     }).catch(() => {});
   }, []);
 
@@ -42,6 +44,12 @@ export default function SettingsScreen() {
     const next = !notificationsEnabled;
     setNotificationsEnabled(next);
     try { await setNotificationsPref(next); } catch (_err) {}
+  };
+
+  const toggleVoice = async () => {
+    const next = !voiceEnabled;
+    setVoiceEnabled(next);
+    try { await setVoicePref(next); } catch (_err) {}
   };
 
   // ── Overlay Dialog & Toast State ──
@@ -227,6 +235,23 @@ export default function SettingsScreen() {
                   name={darkModeMap ? 'toggle-switch' : 'toggle-switch-off-outline'}
                   size={36}
                   color={darkModeMap ? colors.primary : colors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.settingItemRow}>
+              <View style={styles.settingItemLeft}>
+                <MaterialCommunityIcons name="volume-high" size={20} color={colors.primaryMuted} />
+                <View>
+                  <Text style={styles.settingItemTitle}>{t('settings.voiceSos')}</Text>
+                  <Text style={styles.settingItemSub}>{t('settings.voiceSosSub')}</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={toggleVoice} activeOpacity={0.8}>
+                <MaterialCommunityIcons
+                  name={voiceEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
+                  size={36}
+                  color={voiceEnabled ? colors.primary : colors.textMuted}
                 />
               </TouchableOpacity>
             </View>

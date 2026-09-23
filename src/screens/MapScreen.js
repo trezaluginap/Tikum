@@ -67,11 +67,13 @@ export default function MapScreen({ route, navigation }) {
   const isNight = currentHour >= 18 || currentHour < 6;
   const [darkMapPref, setDarkMapPrefState] = useState(null);
   const notificationsPrefRef = useRef(true);
+  const voicePrefRef = useRef(true);
 
   useEffect(() => {
     loadSettingsPrefs().then((prefs) => {
       setDarkMapPrefState(prefs.darkMap);
       notificationsPrefRef.current = prefs.notifications;
+      voicePrefRef.current = prefs.voice;
     }).catch(() => {});
   }, []);
 
@@ -133,10 +135,8 @@ export default function MapScreen({ route, navigation }) {
       });
       setSosUsers((prev) => ({ ...prev, [user?.id]: reasonLabel }));
       showToast('danger', `⚠️ ${t('map.sosDeclared')}`, `Alasan bantuan: "${reasonLabel}" dikirim ke rombongan.`);
-      if (notificationsPrefRef.current) {
-        Vibration.vibrate([0, 300, 200, 300]);
-        sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
-      }
+      if (notificationsPrefRef.current) Vibration.vibrate([0, 300, 200, 300]);
+      if (voicePrefRef.current) sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
     } catch (_err) {}
   };
 
@@ -294,7 +294,7 @@ export default function MapScreen({ route, navigation }) {
               if (notificationsPrefRef.current) Vibration.vibrate([0, 500, 200, 500, 200, 800]);
 
               // Voice Safety Alert with Reason
-              if (notificationsPrefRef.current) sayOutLoud(`Peringatan darurat! Sinyal S O S aktif dari ${userName}. Alasan: ${reasonText}`);
+              if (voicePrefRef.current) sayOutLoud(`Peringatan darurat! Sinyal S O S aktif dari ${userName}. Alasan: ${reasonText}`);
             }
           })
           .listen('.sos.resolved', (e) => {
