@@ -4,7 +4,7 @@ import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react
 
 import { colors, fonts, fontSize, radius, spacing } from '../../constants/theme';
 
-export default function ConvoyRadarSheet({ myLocation, friendsLocations = [], userProfiles = {}, sosUsers = {} }) {
+export default function ConvoyRadarSheet({ myLocation, friendsLocations = [], userProfiles = {}, sosUsers = {}, onMemberPress }) {
   const [collapsed, setCollapsed] = useState(true);
 
   // Haversine formula to compute distance between two coordinates in km
@@ -72,7 +72,11 @@ export default function ConvoyRadarSheet({ myLocation, friendsLocations = [], us
               showsVerticalScrollIndicator={false}
               style={{ maxHeight: 180 }}
               renderItem={({ item }) => (
-                <View style={[styles.memberItem, item.isSos && styles.memberItemSos, item.isLagging && styles.memberItemLagging]}>
+                <TouchableOpacity
+                  style={[styles.memberItem, item.isSos && styles.memberItemSos, item.isLagging && styles.memberItemLagging]}
+                  onPress={() => onMemberPress && onMemberPress(item.id)}
+                  activeOpacity={0.7}
+                >
                   <View style={styles.memberAvatarDot}>
                     {item.photoUrl && !item.photoUrl.startsWith('file://') ? (
                       <Image source={{ uri: item.photoUrl }} style={styles.avatarImg} />
@@ -93,7 +97,7 @@ export default function ConvoyRadarSheet({ myLocation, friendsLocations = [], us
                       {item.distanceKm ? `${item.distanceKm} km` : '-'}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               )}
             />
           )}

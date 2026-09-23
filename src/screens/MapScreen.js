@@ -113,6 +113,7 @@ export default function MapScreen({ route, navigation }) {
   // ── Navigation Mode & Convoy Radar States ──
   const [isNavigating, setIsNavigating] = useState(false);
   const [isAutoFollow, setIsAutoFollow] = useState(true);
+  const [mapTileType, setMapTileType] = useState('dark');
   const [maneuvers, setManeuvers] = useState([]);
   const [sosActive, setSosActive] = useState(false);
   const [activeSosAlertId, setActiveSosAlertId] = useState(null);
@@ -583,13 +584,28 @@ export default function MapScreen({ route, navigation }) {
     friendsLocations.forEach((f) => {
       const p = userProfiles[f.user_id] || { name: 'Member' };
       const isSos = !!sosUsers[f.user_id];
-      m.push({ id: `friend-${f.user_id}`, latitude: f.latitude, longitude: f.longitude, label: p.name, color: '#10B981', icon: isSos ? 'sos' : 'friend' });
+      const dist = myLocation
+        ? getDistance(myLocation.latitude, myLocation.longitude, f.latitude, f.longitude)
+        : null;
+      const isLagging = dist !== null && parseFloat(dist) > 1.5;
+
+      m.push({
+        id: `friend-${f.user_id}`,
+        latitude: f.latitude,
+        longitude: f.longitude,
+        label: p.name,
+        color: isSos ? '#EF4444' : isLagging ? '#F59E0B' : '#10B981',
+        icon: isSos ? 'sos' : 'friend',
+        photoUrl: p.photoUrl || null,
+        isLagging,
+        distanceKm: dist,
+      });
     });
     poiMarkers.forEach((poi) => {
       m.push({ id: poi.id, latitude: poi.latitude, longitude: poi.longitude, label: poi.name, color: '#F59E0B', icon: 'poi' });
     });
     return m;
-  }, [origin, destination, friendsLocations, poiMarkers, userProfiles, sosUsers, originName, destinationName]);
+  }, [origin, destination, friendsLocations, poiMarkers, userProfiles, sosUsers, originName, destinationName, myLocation]);
 
   // ── Auto-fetch OSRM route if preloadedRoute empty but origin & destination exist ──
   useEffect(() => {
@@ -648,6 +664,24 @@ export default function MapScreen({ route, navigation }) {
     return () => { cancelled = true; };
   }, [myLocation?.latitude, myLocation?.longitude, origin?.latitude, origin?.longitude]);
 
+  const handleFocusMember = (memberId) => {
+    setIsAutoFollow(false);
+    const cleanId = String(memberId).replace(/^friend-/, '');
+    const target = friendsLocations.find((f) => String(f.user_id) === cleanId);
+    if (target && mapRef.current) {
+      if (typeof mapRef.current.animateToRegion === 'function') {
+        mapRef.current.animateToRegion({
+          latitude: target.latitude,
+          longitude: target.longitude,
+          latitudeDelta: 0.008,
+          longitudeDelta: 0.008,
+        }, 800);
+      }
+      const p = userProfiles[target.user_id] || { name: 'Member' };
+      showToast('info', 'Fokus Kamera', `Kamera diarahkan ke ${p.name}`);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
@@ -688,6 +722,8 @@ export default function MapScreen({ route, navigation }) {
         pickupRouteCoords={pickupRouteCoords}
         markers={allMapMarkers}
         myLocation={myLocation}
+        mapTileType={mapTileType}
+        onMarkerPress={handleFocusMember}
       >
         {/* Native engine children (ignored in WebView mode) */}
         {pickupRouteCoords.length > 1 && (
@@ -836,7 +872,38 @@ export default function MapScreen({ route, navigation }) {
         friendsLocations={friendsLocations}
         userProfiles={userProfiles}
         sosUsers={sosUsers}
+        onMemberPress={handleFocusMember}
       />
+
+      {/* MAP LAYER SWITCHER PILLS */}
+      <View style={styles.tileSwitcherContainer}>
+        <TouchableOpacity
+          style={[styles.tilePill, mapTileType === 'dark' && styles.tilePillActive]}
+          onPress={() => setMapTileType('dark')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="theme-light-dark" size={13} color={mapTileType === 'dark' ? colors.white : colors.textMuted} />
+          <Text style={[styles.tilePillText, mapTileType === 'dark' && styles.tilePillTextActive]}>Dark</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tilePill, mapTileType === 'satellite' && styles.tilePillActive]}
+          onPress={() => setMapTileType('satellite')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="earth" size={13} color={mapTileType === 'satellite' ? colors.white : colors.textMuted} />
+          <Text style={[styles.tilePillText, mapTileType === 'satellite' && styles.tilePillTextActive]}>Satelit</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tilePill, mapTileType === 'topo' && styles.tilePillActive]}
+          onPress={() => setMapTileType('topo')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="image-filter-hdr" size={13} color={mapTileType === 'topo' ? colors.white : colors.textMuted} />
+          <Text style={[styles.tilePillText, mapTileType === 'topo' && styles.tilePillTextActive]}>Topo</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* SOS REASON CHOICE MODAL */}
       <SosReasonModal
@@ -947,6 +1014,40 @@ const styles = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14,
     backgroundColor: 'rgba(99,102,241,0.12)',
     justifyContent: 'center', alignItems: 'center',
+  },
+
+  tileSwitcherContainer: {
+    position: 'absolute',
+    top: 200,
+    right: spacing.lg,
+    flexDirection: 'column',
+    gap: 6,
+    zIndex: 42,
+  },
+  tilePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm + 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    elevation: 4,
+  },
+  tilePillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  tilePillText: {
+    fontSize: 10,
+    fontFamily: fonts.semiBold,
+    color: colors.textMuted,
+  },
+  tilePillTextActive: {
+    color: colors.white,
+    fontFamily: fonts.bold,
   },
 
   myMarkerWrap: { alignItems: 'center' },
