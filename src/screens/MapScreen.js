@@ -3,12 +3,12 @@ import * as Clipboard from 'expo-clipboard';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
+import Constants from 'expo-constants';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   ActivityIndicator,
-  SafeAreaView,
   Share,
   StatusBar,
   StyleSheet,
@@ -20,6 +20,7 @@ import {
   View,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import TiKumMap, { TIKUM_DARK_STYLE, TIKUM_STREETS_STYLE, TiKumMarker, TiKumPolyline } from '../components/map/TiKumMap';
 import ConvoyRadarSheet from '../components/map/ConvoyRadarSheet';
 import SosReasonModal from '../components/map/SosReasonModal';
@@ -86,9 +87,11 @@ export default function MapScreen({ route, navigation }) {
   const encodedVC = vehicleCount || 0;
   const modeCode = encodedVC >= 1000 ? Math.floor(encodedVC / 1000) : 2;
   const initialRoutingMode = modeCode === 1 ? 'motorcycle' : modeCode === 3 ? 'auto_no_toll' : 'auto_toll';
+  const vehicleType = modeCode === 1 ? 'motorcycle' : 'car';
 
   // ── Routing Mode & In-App Navigation ──
   const [routingMode] = useState(initialRoutingMode);
+  const spokenManeuverRef = useRef(-1);
 
   // ── Interactive Animations ──
   const sosPulseAnim = useRef(new Animated.Value(1)).current;
@@ -126,6 +129,8 @@ export default function MapScreen({ route, navigation }) {
 
   const handleSendSosReason = async (reasonLabel) => {
     setSosReasonModalVisible(false);
+    if (notificationsPrefRef.current) Vibration.vibrate([0, 300, 200, 300]);
+    if (voicePrefRef.current) sayOutLoud(`Peringatan darurat! ${displayName} membutuhkan bantuan. Alasan: ${reasonLabel}`);
     if (!tourSessionId) return;
     try {
       await triggerSos(tourSessionId, {
@@ -135,8 +140,6 @@ export default function MapScreen({ route, navigation }) {
       });
       setSosUsers((prev) => ({ ...prev, [user?.id]: reasonLabel }));
       showToast('danger', `⚠️ ${t('map.sosDeclared')}`, `Alasan bantuan: "${reasonLabel}" dikirim ke rombongan.`);
-      if (notificationsPrefRef.current) Vibration.vibrate([0, 300, 200, 300]);
-      if (voicePrefRef.current) sayOutLoud(`Peringatan darurat dari ${displayName}. Alasan: ${reasonLabel}`);
     } catch (_err) {}
   };
 
@@ -179,73 +182,63 @@ export default function MapScreen({ route, navigation }) {
     photoUrl: user?.profile?.avatar_url || user?.user_metadata?.profile_photo_url || null
   };
 
+  const updateFriends = (newLoc) => {
+    setFriendsLocations((prev) => {
+      if (!newLoc?.user_id) return prev;
+      const filtered = prev.filter(f => f.user_id !== newLoc.user_id);
+      return [...filtered, newLoc];
+    });
+  };
+
   // ── Realtime & Location Polling Lifecycle ──
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Dapatkan lokasi saat ini & watch position
+    // 1. Dapatkan lokasi & watch position (watcher selalu jalan; getCurrentPosition best-effort)
+    let watcher = null;
     (async () => {
+      let lastLocationSentAt = 0;
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted' || !isMounted) return;
+
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          return;
+        await Location.requestBackgroundPermissionsAsync();
+      } catch (_bgErr) {}
+
+      const pushCoords = (coords, force = false) => {
+        if (!isMounted || !coords) return;
+        const c = {
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          heading: coords.heading || 0,
+          speed: coords.speed || 0,
+          altitude: coords.altitude || 0,
+        };
+        setMyLocation(c);
+        const now = Date.now();
+        if (tourSessionId && (force || now - lastLocationSentAt > 10000)) {
+          lastLocationSentAt = now;
+          updateCurrentLocation(tourSessionId, c).catch(() => {});
         }
+      };
 
-        try {
-          await Location.requestBackgroundPermissionsAsync();
-        } catch (_bgErr) {}
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+        .then((loc) => { if (loc?.coords) pushCoords(loc.coords, true); })
+        .catch((_e) => {});
 
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        if (isMounted && loc?.coords) {
-          const coords = {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            heading: loc.coords.heading || 0,
-            speed: loc.coords.speed || 0,
-            altitude: loc.coords.altitude || 0,
-          };
-          setMyLocation(coords);
-
-          // Otomatis arahkan camera peta ke lokasi GPS pengguna saat ini
-          if (mapRef.current) {
-            if (typeof mapRef.current.animateToRegion === 'function') {
-              mapRef.current.animateToRegion({
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              }, 1000);
-            }
-          }
-
-          // Update lokasi awal ke backend jika ada tourSessionId
-          if (tourSessionId) {
-            updateCurrentLocation(tourSessionId, coords).catch(err => console.log('[Location] initial update err:', err));
-          }
-        }
-
-        // Subscribing to position updates for real-time Speedometer & Altitude
-        const watcher = await Location.watchPositionAsync(
+      try {
+        watcher = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.High,
             timeInterval: 2000,
             distanceInterval: 5,
           },
           (newLoc) => {
-            if (isMounted && newLoc?.coords) {
-              setMyLocation({
-                latitude: newLoc.coords.latitude,
-                longitude: newLoc.coords.longitude,
-                heading: newLoc.coords.heading || 0,
-                speed: newLoc.coords.speed || 0,
-                altitude: newLoc.coords.altitude || 0,
-              });
-            }
+            if (newLoc?.coords) pushCoords(newLoc.coords);
           }
         );
-        return () => watcher.remove();
-      } catch (err) {
-        console.log('[Location] init err:', err);
+      } catch (watchErr) {
+        console.log('[Location] watch err:', watchErr?.message);
       }
     })();
 
@@ -319,13 +312,15 @@ export default function MapScreen({ route, navigation }) {
       }
     }
 
-    // 4. Start background location tracking
-    if (tourSessionId) {
+    // 4. Start background location tracking (tidak tersedia di Expo Go)
+    const isExpoGo = Constants.executionEnvironment === 'storeClient';
+    if (tourSessionId && !isExpoGo) {
       startBackgroundLocationTracking(tourSessionId).catch(err => console.log('[BgLocation] start err:', err));
     }
 
     return () => {
       isMounted = false;
+      if (watcher) watcher.remove();
       if (intervalId) clearInterval(intervalId);
       if (echo) disconnectEcho(echo);
       stopBackgroundLocationTracking().catch(() => {});
@@ -352,12 +347,17 @@ export default function MapScreen({ route, navigation }) {
     }
   }, []);
 
-  const updateFriends = (newLoc) => {
-    setFriendsLocations((prev) => {
-      if (!newLoc?.user_id) return prev;
-      const filtered = prev.filter(f => f.user_id !== newLoc.user_id);
-      return [...filtered, newLoc];
-    });
+  const getDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c; 
+    return distance.toFixed(1);
   };
 
   const laggingWarnedRef = useRef({});
@@ -474,26 +474,15 @@ export default function MapScreen({ route, navigation }) {
     }
   };
 
-  const getDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * (Math.PI / 180);
-    const dLon = (lon2 - lon1) * (Math.PI / 180);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c; 
-    return distance.toFixed(1);
-  };
-
   const handleToggleNavigation = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const nextState = !isNavigating;
     setIsNavigating(nextState);
     setIsAutoFollow(true);
 
-    if (nextState && myLocation && mapRef.current) {
+    if (nextState && !myLocation) {
+      showToast('warning', t('map.startTrip'), 'Lokasi belum tersedia. Nyalakan GPS dan izinkan lokasi.');
+    } else if (nextState && myLocation && mapRef.current) {
       mapRef.current.animateCamera({
         center: { latitude: myLocation.latitude, longitude: myLocation.longitude },
         pitch: 55,
@@ -541,6 +530,7 @@ export default function MapScreen({ route, navigation }) {
               if (!triggerOk) return;
               setSosActive(true);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              if (voicePrefRef.current) sayOutLoud('Sinyal darurat S O S dikirim!');
               showToast('danger', t('map.sosSent'), t('map.sosSentMsg'));
               setSosReasonModalVisible(true);
             },
@@ -575,6 +565,75 @@ export default function MapScreen({ route, navigation }) {
     }
   }, [myLocation?.latitude, myLocation?.longitude, isAutoFollow]);
 
+  // ── Turn-by-turn active maneuver & voice guidance ──
+  const [activeManeuverIdx, setActiveManeuverIdx] = useState(0);
+  const activeManeuver = maneuvers.filter(m => m && m.instruction).length > 0
+    ? maneuvers[activeManeuverIdx] || maneuvers[0]
+    : null;
+
+  useEffect(() => {
+    setActiveManeuverIdx(0);
+    spokenManeuverRef.current = -1;
+  }, [maneuvers]);
+
+  useEffect(() => {
+    if (!isNavigating || !maneuvers.length || !myLocation || !origin) return;
+
+    const distGps = getDistance(origin.latitude, origin.longitude, myLocation.latitude, myLocation.longitude);
+    const traveledMeters = Number(distGps) * 1000;
+
+    let nextIdx = maneuvers.length - 1;
+    let nextDiff = Infinity;
+    maneuvers.forEach((m, i) => {
+      if (!m || typeof m.distanceMeters !== 'number' || m.distanceMeters <= 0) return;
+      const diff = Math.abs(m.distanceMeters - traveledMeters);
+      if (diff < nextDiff) {
+        nextDiff = diff;
+        nextIdx = i;
+      }
+    });
+
+    if (nextIdx !== activeManeuverIdx) {
+      const t = setTimeout(() => setActiveManeuverIdx(nextIdx), 0);
+      return () => clearTimeout(t);
+    }
+  }, [myLocation?.latitude, myLocation?.longitude, isNavigating, maneuvers, activeManeuverIdx, origin?.latitude]);
+
+  useEffect(() => {
+    if (!isNavigating || !activeManeuver?.instruction) return;
+    if (!voicePrefRef.current) return;
+    if (spokenManeuverRef.current === activeManeuverIdx) return;
+
+    const isAnnounceable =
+      activeManeuver.isTurn ||
+      activeManeuver.type === 'depart' ||
+      activeManeuver.type === 'arrive';
+    if (!isAnnounceable) {
+      spokenManeuverRef.current = activeManeuverIdx;
+      return;
+    }
+
+    spokenManeuverRef.current = activeManeuverIdx;
+    let announce = activeManeuver.instruction.replace(/<[^>]+>/g, '');
+
+    if (myLocation && origin && typeof activeManeuver.distanceMeters === 'number' && activeManeuver.distanceMeters > 0 && activeManeuver.isTurn) {
+      const remaining = activeManeuver.distanceMeters - (Number(getDistance(origin.latitude, origin.longitude, myLocation.latitude, myLocation.longitude)) * 1000);
+      if (remaining > 0) {
+        const distLabel = remaining >= 1000
+          ? `${(remaining / 1000).toFixed(1)} kilometer`
+          : `${Math.round(remaining)} meter`;
+        announce = `${announce} dalam ${distLabel}`;
+      }
+    }
+
+    setTimeout(() => {
+      try {
+        Speech.stop();
+        Speech.speak(announce, { language: 'id-ID', rate: 0.92, pitch: 1.05 });
+      } catch (_speechErr) {}
+    }, 300);
+  }, [isNavigating, activeManeuverIdx, activeManeuver, myLocation?.latitude, myLocation?.longitude, origin?.latitude]);
+
   // ── Build markers array for WebView Leaflet bridge ──
   const allMapMarkers = useMemo(() => {
     const m = [];
@@ -604,7 +663,11 @@ export default function MapScreen({ route, navigation }) {
         if (!cancelled && result?.routeCoords?.length > 0) {
           setRouteCoords(result.routeCoords);
           if (result.routeSummary) setRouteSummary(result.routeSummary);
-          if (result.maneuvers) setManeuvers(result.maneuvers);
+          if (result.maneuvers) {
+            setManeuvers(result.maneuvers);
+            setActiveManeuverIdx(0);
+            spokenManeuverRef.current = -1;
+          }
           if (mapRef.current?.fitToCoordinates) {
             mapRef.current.fitToCoordinates(result.routeCoords, {
               edgePadding: { top: 120, right: 50, bottom: 280, left: 50 },
@@ -688,6 +751,7 @@ export default function MapScreen({ route, navigation }) {
         pickupRouteCoords={pickupRouteCoords}
         markers={allMapMarkers}
         myLocation={myLocation}
+        vehicleType={vehicleType}
       >
         {/* Native engine children (ignored in WebView mode) */}
         {pickupRouteCoords.length > 1 && (
@@ -790,6 +854,36 @@ export default function MapScreen({ route, navigation }) {
         <View style={styles.routeLoadingChip}>
           <ActivityIndicator size="small" color={colors.primary} />
           <Text style={styles.routeLoadingText}>{t('map.routeLoading')}</Text>
+        </View>
+      )}
+
+      {/* TURN-BY-TURN NAVIGATION BANNER */}
+      {isNavigating && activeManeuver && (
+        <View style={styles.turnBanner}>
+          <View style={styles.turnBannerIcon}>
+            <MaterialCommunityIcons
+              name={activeManeuver.icon || 'navigation-variant'}
+              size={30}
+              color={colors.white}
+            />
+          </View>
+          <View style={styles.turnBannerBody}>
+            <Text style={styles.turnBannerTitle} numberOfLines={1}>
+              {activeManeuver.instruction || 'Lanjut perjalanan'}
+            </Text>
+            {typeof activeManeuver.distanceMeters === 'number' && activeManeuver.distanceMeters > 0 && myLocation && origin && (
+              <Text style={styles.turnBannerDistance}>
+                {(() => {
+                  const traveledM = Number(getDistance(origin.latitude, origin.longitude, myLocation.latitude, myLocation.longitude)) * 1000;
+                  const remaining = activeManeuver.distanceMeters - traveledM;
+                  const shown = remaining > 0 ? remaining : activeManeuver.distanceMeters;
+                  return shown >= 1000
+                    ? `${(shown / 1000).toFixed(1)} km`
+                    : `${Math.round(shown)} m`;
+                })()}
+              </Text>
+            )}
+          </View>
         </View>
       )}
 
@@ -1024,6 +1118,48 @@ const styles = StyleSheet.create({
     zIndex: 45,
   },
   routeLoadingText: { fontSize: fontSize.xs, fontFamily: fonts.semiBold, color: colors.textPrimary },
+
+  turnBanner: {
+    position: 'absolute',
+    top: 108,
+    left: spacing.md,
+    right: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    borderRadius: radius.xl,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.45)',
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 46,
+  },
+  turnBannerIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  turnBannerBody: { flex: 1 },
+  turnBannerTitle: {
+    color: colors.white,
+    fontFamily: fonts.bold,
+    fontSize: fontSize.md,
+  },
+  turnBannerDistance: {
+    color: colors.primaryMuted || '#A5B4FC',
+    fontFamily: fonts.semiBold,
+    fontSize: fontSize.sm,
+    marginTop: 2,
+  },
 
   sosMarkerDot: {
     backgroundColor: colors.danger,

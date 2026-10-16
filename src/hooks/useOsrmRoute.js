@@ -31,73 +31,112 @@ function decodePolyline(str, precision = 6) {
   return coordinates;
 }
 
-function buildValhallaPayload(originCoords, destinationCoords, mode = 'auto_toll') {
-  let costing = 'auto';
-  const costingOptions = {};
+function parseOsrmManeuvers(steps = []) {
+  let cumulative = 0;
+  return steps.map((s, idx) => {
+    const mType = s.maneuver?.type || 'turn';
+    const mMod = s.maneuver?.modifier || '';
+    const street = s.name && s.name.trim() ? s.name.trim() : 'jalan utama';
 
-  if (mode === 'motorcycle') {
-    costing = 'motorcycle';
-  } else if (mode === 'auto_no_toll') {
-    costing = 'auto';
-    costingOptions.auto = { use_tolls: 0 };
-  } else {
-    costing = 'auto';
-    costingOptions.auto = { use_tolls: 1 };
-  }
+    const isRealTurn = [
+      'turn', 'uturn', 'roundabout', 'roundabout_turn',
+      'exit_roundabout', 'off_ramp', 'fork', 'end_of_road', 'merge',
+    ].includes(mType);
 
-  return {
-    locations: [
-      { lat: originCoords.latitude, lon: originCoords.longitude, type: 'break' },
-      { lat: destinationCoords.latitude, lon: destinationCoords.longitude, type: 'break' },
-    ],
-    costing,
-    costing_options: costingOptions,
-    directions_options: {
-      units: 'kilometers',
-      language: 'id-ID',
-    },
-  };
+    let icon = 'navigation-variant';
+    let text = `Lanjut ke ${street}`;
+
+    if (mType === 'depart') {
+      icon = 'flag-variant';
+      text = `Mulai perjalanan di ${street}`;
+    } else if (mType === 'arrive') {
+      icon = 'flag-checkered';
+      text = `Anda telah tiba di tujuan, ${street}`;
+    } else if (mMod.includes('left')) {
+      icon = 'arrow-top-left-bold';
+      text = mType === 'fork' ? `Belok kiri bercabang ke ${street}` : `Belok kiri ke ${street}`;
+    } else if (mMod.includes('right')) {
+      icon = 'arrow-top-right-bold';
+      text = mType === 'fork' ? `Belok kanan bercabang ke ${street}` : `Belok kanan ke ${street}`;
+    } else if (mMod.includes('uturn')) {
+      icon = 'undo-variant';
+      text = `Putar balik ke ${street}`;
+    } else if (mType === 'roundabout' || mType === 'roundabout_turn' || mType === 'exit_roundabout') {
+      icon = 'arrow-u-up-right';
+      text = `Ikuti bundaran, ambil jalan menuju ${street}`;
+    }
+
+    cumulative += Math.round(s.distance || 0);
+
+    return {
+      id: `step-${idx}`,
+      type: mType,
+      modifier: mMod,
+      icon,
+      instruction: text,
+      streetName: street,
+      isTurn: isRealTurn,
+      distanceMeters: cumulative,
+      location: s.maneuver?.location ? { latitude: s.maneuver.location[1], longitude: s.maneuver.location[0] } : null,
+    };
+  });
 }
 
-const VALHALLA_URL = 'https://valhalla1.openstreetmap.de/route';
+const OSRM_BIKE_URLS = [
+  'https://routing.openstreetmap.de/routed-bike/route/v1/biking',
+  'https://routing.openstreetmap.de/routed-car/route/v1/driving',
+];
+const OSRM_CAR_URLS = [
+  'https://routing.openstreetmap.de/routed-car/route/v1/driving',
+  'https://router.project-osrm.org/route/v1/driving',
+];
+
+async function safeFetchJson(url, ms = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!text || text.trim().startsWith('<')) return null;
+    return JSON.parse(text);
+  } catch (_e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildOsrmUrl(base, origin, destination) {
+  return `${base}/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=full&geometries=polyline&steps=true`;
+}
 
 export async function fetchValhallaRoute(originCoords, destinationCoords, mode = 'auto_toll') {
   if (!originCoords || !destinationCoords) return null;
 
-  const payload = buildValhallaPayload(originCoords, destinationCoords, mode);
-  const url = `${VALHALLA_URL}?json=${encodeURIComponent(JSON.stringify(payload))}`;
+  const useBike = mode === 'motorcycle' || mode === 'auto_no_toll';
+  const hosts = useBike ? OSRM_BIKE_URLS : OSRM_CAR_URLS;
 
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error('[Valhalla] HTTP Error:', res.status, errText.slice(0, 200));
-      return null;
+  for (const host of hosts) {
+    const json = await safeFetchJson(buildOsrmUrl(host, originCoords, destinationCoords));
+    const route = json?.routes?.[0];
+    if (route?.geometry) {
+      const steps = route.legs?.[0]?.steps || [];
+      return {
+        routeCoords: decodePolyline(route.geometry, 5),
+        routeSummary: {
+          distanceKm: (route.distance / 1000).toFixed(1),
+          durationMin: Math.ceil(route.duration / 60),
+        },
+        maneuvers: parseOsrmManeuvers(steps),
+      };
     }
-    const json = await res.json();
-
-    if (!json.trip || !json.trip.legs || json.trip.legs.length === 0) {
-      console.error('[Valhalla] No trip/legs found');
-      return null;
-    }
-
-    const trip = json.trip;
-    const shape = trip.legs[0].shape;
-    const routeCoords = decodePolyline(shape, 6);
-    const maneuvers = trip.legs[0].maneuvers || [];
-
-    return {
-      routeCoords,
-      routeSummary: {
-        distanceKm: trip.summary.length.toFixed(1),
-        durationMin: Math.ceil(trip.summary.time / 60),
-      },
-      maneuvers,
-    };
-  } catch (error) {
-    console.error('[Valhalla] Fetch error:', error);
-    return null;
   }
+
+  return null;
 }
 
 export function useValhallaRoute(originCoords, destinationCoords, mode = 'auto_toll') {

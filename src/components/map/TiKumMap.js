@@ -1,14 +1,19 @@
 import React, { useEffect, useImperativeHandle, forwardRef, useRef } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
+import Constants from 'expo-constants';
 
 let MapLibreGL = null;
 let WebView = null;
 
-try {
-  MapLibreGL = require('@maplibre/maplibre-react-native');
-  if (MapLibreGL?.default) MapLibreGL = MapLibreGL.default;
-} catch (_e) {
-  MapLibreGL = null;
+const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+
+if (!isExpoGo) {
+  try {
+    MapLibreGL = require('@maplibre/maplibre-react-native');
+    if (MapLibreGL?.default) MapLibreGL = MapLibreGL.default;
+  } catch (_e) {
+    MapLibreGL = null;
+  }
 }
 
 try {
@@ -19,8 +24,8 @@ try {
 }
 
 const MapViewNative = null;
-const MapViewComp = MapLibreGL?.MapView || MapLibreGL?.default?.MapView;
-const CameraComp = MapLibreGL?.Camera || MapLibreGL?.default?.Camera;
+const MapViewComp = isExpoGo ? null : (MapLibreGL?.MapView || MapLibreGL?.default?.MapView);
+const CameraComp = isExpoGo ? null : (MapLibreGL?.Camera || MapLibreGL?.default?.Camera);
 
 export const TIKUM_DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 export const TIKUM_STREETS_STYLE = 'https://tiles.openfreemap.org/styles/bright';
@@ -35,6 +40,7 @@ function LeafletMapBridge(props, ref) {
     pickupRouteCoords = [],
     markers = [],
     myLocation,
+    vehicleType = 'motorcycle',
   } = props;
 
   const webViewRef = useRef(null);
@@ -73,9 +79,14 @@ function LeafletMapBridge(props, ref) {
 
   useEffect(() => {
     if (myLocation) {
-      postCmd('updateUser', { lat: myLocation.latitude, lng: myLocation.longitude, heading: myLocation.heading || 0 });
+      postCmd('updateUser', {
+        lat: myLocation.latitude,
+        lng: myLocation.longitude,
+        heading: myLocation.heading || 0,
+        vehicleType,
+      });
     }
-  }, [myLocation?.latitude, myLocation?.longitude, myLocation?.heading]);
+  }, [myLocation?.latitude, myLocation?.longitude, myLocation?.heading, vehicleType]);
 
   useEffect(() => {
     if (routeCoords.length > 1) {
@@ -103,121 +114,209 @@ function LeafletMapBridge(props, ref) {
   const routeJSON = JSON.stringify(routeCoords.map((c) => [c.latitude, c.longitude]));
   const pickupRouteJSON = JSON.stringify(pickupRouteCoords.map((c) => [c.latitude, c.longitude]));
 
+  const initialVehicleIcon = vehicleType === 'car' ? '🚗' : '🏍️';
+  const initialVehicleColor = vehicleType === 'car' ? '#0EA5E9' : '#6366F1';
+
   const leafletHTML = `
     <!DOCTYPE html>
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\\/script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
-          html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; background: #0F172A; }
-          .gps-marker {
-            width: 24px; height: 24px; background: #6366F1;
-            border: 3px solid #FFF; border-radius: 50%;
-            box-shadow: 0 0 16px rgba(99,102,241,0.8);
-          }
+          html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; background: #0A0F1D; }
           .gps-pulse {
-            width: 46px; height: 46px; border-radius: 50%;
-            background: rgba(99,102,241,0.25); border: 1px solid rgba(99,102,241,0.5);
-            position: absolute; top: -11px; left: -11px;
-            animation: pulse 2s infinite;
+            width: 48px; height: 48px; border-radius: 50%;
+            background: rgba(99,102,241,0.22); border: 1.5px solid rgba(99,102,241,0.6);
+            position: absolute; top: -14px; left: -14px;
+            animation: pulse 2.2s infinite; pointer-events: none;
           }
           @keyframes pulse {
-            0% { transform: scale(1); opacity: 0.8; }
-            100% { transform: scale(2.2); opacity: 0; }
+            0% { transform: scale(1); opacity: 0.9; }
+            100% { transform: scale(2.4); opacity: 0; }
           }
-          .origin-marker { background: #10B981; border: 2px solid #FFF; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 2px 8px rgba(16,185,129,0.5); }
-          .dest-marker { background: #EF4444; border: 2px solid #FFF; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 2px 8px rgba(239,68,68,0.5); }
-          .friend-marker { background: #10B981; border: 2px solid #FFF; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 2px 8px rgba(16,185,129,0.5); }
-          .sos-friend-marker { background: #EF4444; border: 2px solid #FFF; width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 12px rgba(239,68,68,0.9); animation: pulse 1s infinite; }
+          .vehicle-marker-wrap {
+            width: 32px; height: 32px; position: relative;
+            display: flex; align-items: center; justify-content: center;
+            transition: transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+          }
+          .vehicle-marker-badge {
+            width: 30px; height: 30px; border-radius: 50%;
+            background: #0F172A; border: 2.5px solid ${initialVehicleColor};
+            box-shadow: 0 0 14px ${initialVehicleColor};
+            display: flex; align-items: center; justify-content: center;
+            font-size: 15px; user-select: none;
+          }
+          .vehicle-direction-arrow {
+            position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+            width: 0; height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-bottom: 7px solid ${initialVehicleColor};
+          }
+          .origin-marker { background: #10B981; border: 2px solid #FFF; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 2px 10px rgba(16,185,129,0.7); }
+          .dest-marker { background: #EF4444; border: 2px solid #FFF; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 2px 10px rgba(239,68,68,0.7); }
+          .friend-marker { background: #10B981; border: 2px solid #FFF; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 2px 8px rgba(16,185,129,0.6); }
+          .sos-friend-marker { background: #EF4444; border: 2px solid #FFF; width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 14px rgba(239,68,68,0.95); animation: pulse 1s infinite; }
           .poi-marker { background: #F59E0B; border: 2px solid #FFF; width: 16px; height: 16px; border-radius: 50%; }
           .marker-label {
-            background: rgba(15,23,42,0.9); color: #FFF; font-size: 10px;
+            background: rgba(15,23,42,0.92); color: #FFF; font-size: 10px;
             padding: 2px 6px; border-radius: 4px; white-space: nowrap;
-            font-family: sans-serif; font-weight: 700; border: 1px solid rgba(255,255,255,0.15);
+            font-family: sans-serif; font-weight: 700; border: 1px solid rgba(255,255,255,0.2);
           }
         </style>
       </head>
       <body>
         <div id="map"></div>
         <script>
-          var map = L.map('map', { zoomControl: false, attributionControl: false })
-            .setView([${centerLat}, ${centerLng}], ${zoom});
-
-          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-
-          var userMarker = L.marker([${centerLat}, ${centerLng}], {
-            icon: L.divIcon({
-              className: '',
-              html: '<div class="gps-pulse"></div><div class="gps-marker"></div>',
-              iconSize: [24, 24], iconAnchor: [12, 12]
-            })
-          }).addTo(map);
-
-          var routeLine = null;
-          var pickupRouteLine = null;
-
-          var initRoute = ${routeJSON};
-          if (initRoute && initRoute.length > 1) {
-            routeLine = L.polyline(initRoute, { color: '#6366F1', weight: 6, opacity: 0.9 }).addTo(map);
-            map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
-          }
-
-          var initPickup = ${pickupRouteJSON};
-          if (initPickup && initPickup.length > 1) {
-            pickupRouteLine = L.polyline(initPickup, { color: '#0EA5E9', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
-          }
-
-          var staticMarkers = {};
-          var initMarkers = ${markersJSON};
-
-          function renderMarkers(mList) {
-            Object.values(staticMarkers).forEach(function(m) { map.removeLayer(m); });
-            staticMarkers = {};
-            mList.forEach(function(m) {
-              var cls = m.icon === 'origin' ? 'origin-marker' : m.icon === 'dest' ? 'dest-marker' : m.icon === 'friend' ? 'friend-marker' : m.icon === 'sos' ? 'sos-friend-marker' : 'poi-marker';
-              var mk = L.marker([m.lat, m.lng], {
-                icon: L.divIcon({ className: cls, iconSize: [18, 18], iconAnchor: [9, 9] })
-              }).addTo(map);
-              if (m.label) mk.bindTooltip(m.label, { permanent: true, direction: 'bottom', className: 'marker-label', offset: [0, 8] });
-              staticMarkers[m.id] = mk;
-            });
-          }
-
-          renderMarkers(initMarkers);
-
-          document.addEventListener('message', function(e) { handleMsg(e); });
-          window.addEventListener('message', function(e) { handleMsg(e); });
-
-          function handleMsg(e) {
+          function bootMap() {
+            if (window.leafletBooted) return;
+            window.leafletBooted = true;
             try {
-              var d = JSON.parse(e.data);
-              if (d.cmd === 'panTo') {
-                map.flyTo([d.lat, d.lng], d.zoom || map.getZoom(), { duration: 0.8 });
-              } else if (d.cmd === 'fitBounds') {
-                if (d.coords && d.coords.length > 1) {
-                  map.fitBounds(d.coords, { padding: d.padding || [50, 50] });
+              var map = L.map('map', { zoomControl: false, attributionControl: false })
+                .setView([${centerLat}, ${centerLng}], ${zoom});
+
+              var tileSteps = [
+                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+              ];
+              var tileStepIdx = 0;
+              var tileErrCount = 0;
+              var baseLayer = L.tileLayer(tileSteps[0], {
+                maxZoom: 19,
+                subdomains: 'abcd'
+              }).addTo(map);
+
+              baseLayer.on('tileerror', function () {
+                tileErrCount++;
+                if (tileErrCount >= 3 && tileStepIdx < tileSteps.length - 1) {
+                  tileStepIdx++;
+                  tileErrCount = 0;
+                  baseLayer.setUrl(tileSteps[tileStepIdx], false);
                 }
-              } else if (d.cmd === 'updateUser') {
-                userMarker.setLatLng([d.lat, d.lng]);
-              } else if (d.cmd === 'setRoute') {
-                if (routeLine) map.removeLayer(routeLine);
-                if (d.coords && d.coords.length > 1) {
-                  routeLine = L.polyline(d.coords, { color: '#6366F1', weight: 6, opacity: 0.9 }).addTo(map);
-                  map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
-                }
-              } else if (d.cmd === 'setPickupRoute') {
-                if (pickupRouteLine) map.removeLayer(pickupRouteLine);
-                if (d.coords && d.coords.length > 1) {
-                  pickupRouteLine = L.polyline(d.coords, { color: '#0EA5E9', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
-                }
-              } else if (d.cmd === 'setMarkers') {
-                renderMarkers(d.markers || []);
+              });
+
+              var userIconHtml = '<div class="gps-pulse"></div>' +
+                '<div id="user-vehicle-wrap" class="vehicle-marker-wrap">' +
+                  '<div class="vehicle-direction-arrow"></div>' +
+                  '<div id="user-vehicle-badge" class="vehicle-marker-badge"><span id="user-vehicle-icon">${initialVehicleIcon}</span></div>' +
+                '</div>';
+
+              var userMarker = L.marker([${centerLat}, ${centerLng}], {
+                icon: L.divIcon({
+                  className: '',
+                  html: userIconHtml,
+                  iconSize: [32, 32],
+                  iconAnchor: [16, 16]
+                })
+              }).addTo(map);
+
+              var routeGlow = null;
+              var routeLine = null;
+              var pickupRouteLine = null;
+
+              var initRoute = ${routeJSON};
+              if (initRoute && initRoute.length > 1) {
+                routeGlow = L.polyline(initRoute, { color: '#6366F1', weight: 10, opacity: 0.35, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+                routeLine = L.polyline(initRoute, { color: '#818CF8', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+                map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
               }
-            } catch(_e) {}
+
+              var initPickup = ${pickupRouteJSON};
+              if (initPickup && initPickup.length > 1) {
+                pickupRouteLine = L.polyline(initPickup, { color: '#0EA5E9', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
+              }
+
+              var staticMarkers = {};
+              var initMarkers = ${markersJSON};
+
+              function renderMarkers(mList) {
+                Object.values(staticMarkers).forEach(function(m) { map.removeLayer(m); });
+                staticMarkers = {};
+                mList.forEach(function(m) {
+                  var cls = m.icon === 'origin' ? 'origin-marker' : m.icon === 'dest' ? 'dest-marker' : m.icon === 'friend' ? 'friend-marker' : m.icon === 'sos' ? 'sos-friend-marker' : 'poi-marker';
+                  var mk = L.marker([m.lat, m.lng], {
+                    icon: L.divIcon({ className: cls, iconSize: [18, 18], iconAnchor: [9, 9] })
+                  }).addTo(map);
+                  if (m.label) mk.bindTooltip(m.label, { permanent: true, direction: 'bottom', className: 'marker-label', offset: [0, 8] });
+                  staticMarkers[m.id] = mk;
+                });
+              }
+
+              renderMarkers(initMarkers);
+
+              function handleMsg(e) {
+                try {
+                  var d = JSON.parse(e.data);
+                  if (d.cmd === 'panTo') {
+                    map.flyTo([d.lat, d.lng], d.zoom || map.getZoom(), { duration: 0.8 });
+                  } else if (d.cmd === 'fitBounds') {
+                    if (d.coords && d.coords.length > 1) {
+                      map.fitBounds(d.coords, { padding: d.padding || [50, 50] });
+                    }
+                  } else if (d.cmd === 'updateUser') {
+                    userMarker.setLatLng([d.lat, d.lng]);
+                    var wrap = document.getElementById('user-vehicle-wrap');
+                    if (wrap && typeof d.heading === 'number') {
+                      wrap.style.transform = 'rotate(' + d.heading + 'deg)';
+                    }
+                    var ic = document.getElementById('user-vehicle-icon');
+                    if (ic) {
+                      ic.textContent = d.vehicleType === 'car' ? '🚗' : '🏍️';
+                    }
+                  } else if (d.cmd === 'setRoute') {
+                    if (routeGlow) map.removeLayer(routeGlow);
+                    if (routeLine) map.removeLayer(routeLine);
+                    if (d.coords && d.coords.length > 1) {
+                      routeGlow = L.polyline(d.coords, { color: '#6366F1', weight: 10, opacity: 0.35, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+                      routeLine = L.polyline(d.coords, { color: '#818CF8', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+                      map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+                    }
+                  } else if (d.cmd === 'setPickupRoute') {
+                    if (pickupRouteLine) map.removeLayer(pickupRouteLine);
+                    if (d.coords && d.coords.length > 1) {
+                      pickupRouteLine = L.polyline(d.coords, { color: '#0EA5E9', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
+                    }
+                  } else if (d.cmd === 'setMarkers') {
+                    renderMarkers(d.markers || []);
+                  }
+                } catch(_e) {}
+              }
+
+              document.addEventListener('message', handleMsg);
+              window.addEventListener('message', handleMsg);
+            } catch(_err) {}
           }
-        <\\/script>
+
+          function initLeaflet() {
+            if (typeof L !== 'undefined') {
+              bootMap();
+            } else {
+              var checks = 0;
+              var t = setInterval(function() {
+                checks++;
+                if (typeof L !== 'undefined') {
+                  clearInterval(t);
+                  bootMap();
+                } else if (checks > 20) {
+                  clearInterval(t);
+                  var sc = document.createElement('script');
+                  sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                  sc.onload = function() { bootMap(); };
+                  document.head.appendChild(sc);
+                }
+              }, 200);
+            }
+          }
+
+          if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            initLeaflet();
+          } else {
+            document.addEventListener('DOMContentLoaded', initLeaflet);
+          }
+        </script>
       </body>
     </html>
   `;
@@ -236,9 +335,17 @@ function LeafletMapBridge(props, ref) {
         ref={webViewRef}
         originWhitelist={['*']}
         source={{ html: leafletHTML }}
-        style={styles.map}
+        style={[styles.map, { width: '100%', height: '100%' }]}
         scrollEnabled={false}
         javaScriptEnabled={true}
+        onError={(e) => console.log('[TiKumMap WebView] onError:', e?.nativeEvent)}
+        onHttpError={(e) => console.log('[TiKumMap WebView] httpError:', e?.nativeEvent?.statusCode, e?.nativeEvent?.url)}
+        onMessage={(e) => {
+          try {
+            const d = JSON.parse(e.nativeEvent.data);
+            if (d?.cmd === 'tik') console.log('[TiKumMap tik]', d?.st);
+          } catch (_me) {}
+        }}
         onLoadEnd={() => {
           if (routeCoords.length > 1) {
             postCmd('setRoute', { coords: routeCoords.map((c) => [c.latitude, c.longitude]) });
@@ -271,6 +378,7 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
     pickupRouteCoords = [],
     markers = [],
     myLocation,
+    vehicleType = 'motorcycle',
   } = props;
 
   const centerLat = customCenter?.latitude || initialRegion?.latitude || myLocation?.latitude || -6.9175;
@@ -337,6 +445,7 @@ const TiKumMapInner = function TiKumMapInner(props, ref) {
       pickupRouteCoords={pickupRouteCoords}
       markers={markers}
       myLocation={myLocation}
+      vehicleType={vehicleType}
       onPress={onPress}
     />
   );
