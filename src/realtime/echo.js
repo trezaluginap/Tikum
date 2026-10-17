@@ -1,8 +1,19 @@
 import Constants from 'expo-constants';
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js/react-native';
+import EchoModule from 'laravel-echo';
+import PusherModule from 'pusher-js';
 
 import { getToken } from '../storage/tokenStorage';
+
+const getConstructor = (mod) => {
+  if (typeof mod === 'function') return mod;
+  if (typeof mod?.default === 'function') return mod.default;
+  if (typeof mod?.Pusher === 'function') return mod.Pusher;
+  if (typeof mod?.default?.default === 'function') return mod.default.default;
+  return mod;
+};
+
+const Echo = getConstructor(EchoModule);
+const Pusher = getConstructor(PusherModule);
 
 const apiUrl = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl || (__DEV__ ? 'http://localhost:8000/api' : '');
 const reverbHost = process.env.EXPO_PUBLIC_REVERB_HOST || Constants.expoConfig?.extra?.reverbHost || (__DEV__ ? 'localhost' : '');

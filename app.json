@@ -14,6 +14,15 @@
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE"
       ]
-    }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-image",
+      "expo-secure-store",
+      "expo-sharing",
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-web-browser"
+    ]
   }
 }
