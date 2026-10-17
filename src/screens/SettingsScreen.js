@@ -17,7 +17,7 @@ import { loadSettingsPrefs, setDarkMapPref, setNotificationsPref, setVoicePref }
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuth();
   const { locale, changeLocale, t } = useLanguage();
 
   // ── Settings Toggles & Modals State ──
@@ -75,7 +75,7 @@ export default function SettingsScreen() {
           style: 'danger',
           onPress: async () => {
             try {
-              await signOut();
+              await logout();
             } catch (err) {
               console.warn('Signout error:', err);
             }

@@ -24,7 +24,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
-  const { user, signOut, restoreSession } = useAuth();
+  const { user, logout, restoreSession } = useAuth();
   const { t } = useLanguage();
 
   // Custom UI Notifications & Dialogs
@@ -154,7 +154,7 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await signOut();
+              await logout();
             } catch (error) {
               showToast('danger', 'Error', error.message);
             }
