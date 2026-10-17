@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Events\MemberLocationUpdated;
+use App\Http\Requests\LocationHistoryIndexRequest;
 use App\Http\Requests\UpdateCurrentLocationRequest;
 use App\Http\Resources\CurrentLocationResource;
+use App\Http\Resources\LocationHistoryResource;
 use App\Models\CurrentLocation;
 use App\Models\LocationHistory;
 use App\Models\TourSession;
@@ -31,6 +33,34 @@ class LocationController extends Controller
 
         return response()->json([
             'locations' => CurrentLocationResource::collection($locations),
+        ]);
+    }
+
+    public function history(LocationHistoryIndexRequest $request, TourSession $session): JsonResponse
+    {
+        $this->authorizeSessionMember($request, $session);
+
+        $perPage = $request->input('per_page') ?: 50;
+
+        $query = $session->locationHistories()
+            ->when(
+                $request->filled('user_id'),
+                fn ($query) => $query->where('user_id', $request->validated('user_id'))
+            )
+            ->orderBy('received_at')
+            ->orderBy('id');
+
+        $histories = $query->paginate($perPage);
+
+        return response()->json([
+            'locations' => LocationHistoryResource::collection($histories->getCollection()),
+            'meta' => [
+                'current_page' => $histories->currentPage(),
+                'per_page' => $histories->perPage(),
+                'total' => $histories->total(),
+                'last_page' => $histories->lastPage(),
+                'has_more' => $histories->hasMorePages(),
+            ],
         ]);
     }
 
@@ -98,6 +128,21 @@ class LocationController extends Controller
 
         if (! $isMember) {
             abort(403, 'Kamu bukan anggota aktif tour session ini.');
+        }
+    }
+
+    private function authorizeSessionMember(Request $request, TourSession $session): void
+    {
+        if (! in_array($session->status, ['active', 'finished'], true)) {
+            abort(403, 'Kamu tidak berhak melihat riwayat sesi ini.');
+        }
+
+        $isMember = $session->members()
+            ->where('user_id', $request->user()->id)
+            ->exists();
+
+        if (! $isMember) {
+            abort(403, 'Kamu bukan anggota tour session ini.');
         }
     }
 

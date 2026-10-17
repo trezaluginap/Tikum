@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rooms/{room}/trip', [RoomController::class, 'trip']);
     Route::get('/tour-sessions/{session}/locations/current', [LocationController::class, 'current']);
     Route::post('/tour-sessions/{session}/locations/current', [LocationController::class, 'update']);
+    Route::get('/tour-sessions/{session}/locations/history', [LocationController::class, 'history']);
     Route::post('/tour-sessions/{session}/sos', [SosController::class, 'trigger']);
     Route::post('/tour-sessions/{session}/sos/{sosAlert}/resolve', [SosController::class, 'resolve']);
     Route::get('/history/trips', [HistoryController::class, 'index']);
